@@ -56,7 +56,6 @@ namespace Buffet_Restaurant_API.Controllers
 
             return CreatedAtAction("GetMenu", new { id = menu.Menu_id }, menu);
         }
-
         // 4. แก้ไขเมนู 
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateMenu(int id, [FromBody] MenuDto request)

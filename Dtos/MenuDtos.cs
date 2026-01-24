@@ -16,7 +16,7 @@ namespace Buffet_Restaurant_API.Dtos
         public string Menu_Image { get; set; }
 
         [Required]
-        // ส่งค่า "อยู่ในบุฟเฟต์" หรือ "ไม่อยู่ในบุฟเฟต์"
+
         public string Menu_Type { get; set; }
     }
 }

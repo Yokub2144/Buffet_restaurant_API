@@ -20,6 +20,7 @@ namespace Buffet_Restaurant_Managment_System_API.Data
             modelBuilder.Entity<Member>().ToTable("member");
             base.OnModelCreating(modelBuilder);
 
+
             modelBuilder.Entity<Cart>().ToTable("Cart");
             modelBuilder.Entity<Cart_item>().ToTable("Cart_item");
             modelBuilder.Entity<Menu>().ToTable("Menu");

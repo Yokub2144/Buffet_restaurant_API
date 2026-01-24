@@ -117,6 +117,5 @@ namespace Buffet_Restaurant_API.Controllers
 
             return Ok(new { cartId = cart.Cart_id, items = items });
         }
-
     }
 }
