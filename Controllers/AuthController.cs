@@ -52,9 +52,9 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
 
             var claims = new[]
             {
-                new Claim(ClaimTypes.NameIdentifier, employee.Emp_id.ToString()),
-                new Claim(ClaimTypes.Name, employee.Fullname?? "No Name"),
-                new Claim(ClaimTypes.Role, employee.Department?? "พนักงาน")
+                new Claim(JwtRegisteredClaimNames.Sub, employee.Emp_id.ToString()),
+                new Claim(JwtRegisteredClaimNames.Name, employee.Fullname?? "No Name"),
+                new Claim("role", employee.Department?? "พนักงาน")
             };
             var jwtKey = _configuration["Jwt:Key"];
             if (string.IsNullOrEmpty(jwtKey))
@@ -87,9 +87,9 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             }
             var claims = new[]
             {
-                new Claim(ClaimTypes.NameIdentifier, member.Member_id.ToString()),
-                new Claim(ClaimTypes.Name, member.Fullname),
-                new Claim(ClaimTypes.Role, "Member")
+                new Claim(JwtRegisteredClaimNames.Sub, member.Member_id.ToString()),
+                new Claim(JwtRegisteredClaimNames.Name, member.Fullname),
+                new Claim("role", "Member")
             };
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -150,7 +150,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                     var uploadParams = new ImageUploadParams()
                 {
                     File = new FileDescription(employee.Image_Profile.FileName, stream),
-                    Folder = "Employee_profiles", // จัดกลุ่มรูปภาพไว้ใน Folder
+                    Folder = "Employee_profiles", 
                     PublicId = $"Employee_{Guid.NewGuid()}",
            
                     Transformation = new Transformation().Width(500).Height(500).Crop("fill").Gravity("face")

@@ -8,7 +8,11 @@ using System.Text;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
-
+var jwtKey = builder.Configuration["Jwt:Key"];
+if (string.IsNullOrEmpty(jwtKey))
+{
+    throw new InvalidOperationException("JWT Key is missing in appsettings.json");
+}
 builder.Services.AddAuthentication(optiont => 
 {
     optiont.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -57,7 +61,7 @@ builder.Services.AddSwaggerGen(option =>
         Description = "Enter JWT Bearer token **_only_**",
         In = ParameterLocation.Header,
         Type = SecuritySchemeType.Http,
-        Scheme = "bearer", // ต้องเป็นตัวเล็ก
+        Scheme = "bearer", 
         BearerFormat = "JWT",
         Reference = new OpenApiReference
         {
