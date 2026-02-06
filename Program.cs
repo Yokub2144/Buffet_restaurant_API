@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Microsoft.OpenApi.Models;
+using Buffet_Restaurant_Managment_System_API.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 var jwtKey = builder.Configuration["Jwt:Key"];
@@ -36,14 +37,16 @@ builder.Services.AddCors(options =>
     {
         policy.WithOrigins(
                 "http://localhost:4200",
-                "https://localhost:4200"
+                "https://localhost:4200",
+                "https://buffet-restaurant-management-system.vercel.app"
+
             )
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials();
     });
 });
-
+builder.Services.AddSignalR();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
@@ -108,5 +111,7 @@ if (app.Environment.IsDevelopment())
 app.UseAuthentication(); 
 app.UseAuthorization();
 app.MapControllers(); 
+
+app.MapHub<tableStatusHub>("/tableStatusHub");
 
 app.Run();

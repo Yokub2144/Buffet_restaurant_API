@@ -8,6 +8,8 @@ using CloudinaryDotNet.Actions;
 using Microsoft.AspNetCore.Authorization;
 using QRCoder;
 using Microsoft.AspNetCore.Components.Forms;
+using Microsoft.AspNetCore.SignalR;
+using Buffet_Restaurant_Managment_System_API.Hubs;
 namespace Buffet_Restaurant_Managment_System_API.Controllers
 {
     [ApiController]
@@ -15,9 +17,11 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
     public class ManagerController : ControllerBase
     {
         private readonly restaurantDbContext _context;
-        public ManagerController(restaurantDbContext context)
+        private readonly IHubContext<tableStatusHub> _hubContext;
+        public ManagerController(restaurantDbContext context, IHubContext<tableStatusHub> hubContext)
         {
             _context = context;
+            _hubContext = hubContext;
         }
 
         [Authorize(Roles = "เจ้าของร้าน")]
@@ -83,8 +87,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
         }
         [Authorize(Roles = "เจ้าของร้าน")]
         [HttpPost("AddTable")]
-        [Consumes("multipart/form-data")]
-        public async Task<IActionResult> AddTable([FromForm]tableDtos table, [FromServices] Cloudinary cloudinary)
+        public async Task<IActionResult> AddTable([FromBody]tableDtos table, [FromServices] Cloudinary cloudinary)
         {
             var existingTable = await _context.Tables
                 .FirstOrDefaultAsync(t => t.Table_Number == table.Table_Number);
@@ -92,7 +95,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             {
                 return BadRequest(new { Message = "โต๊ะหมายเลขนี้มีอยู่แล้ว" });
             }
-            string menuUrl = $"https://your-restaurant-frontend.com/menu?table={table.Table_Number}";
+            string menuUrl = $"https://buffet-restaurant-management-system.vercel.app/Customer?table={table.Table_Number}";
             string qrCodeImageUrl = "";
             using (QRCodeGenerator qrGenerator = new QRCodeGenerator())
             {
@@ -129,5 +132,56 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             await _context.SaveChangesAsync();
             return Ok(new { Message = "เพิ่มโต๊ะสำเร็จ", table = newTable });
         }
+        [HttpGet("getTables")]
+        public async Task<IActionResult> getTables()
+        {
+            var tables = await _context.Tables.ToListAsync();
+            return Ok(tables);
+        }
+        [HttpGet("getTableById")]
+        public async Task<IActionResult> GetTableById(int tableId)
+        {
+            var table = await _context.Tables
+                .FirstOrDefaultAsync(t => t.Table_id == tableId);
+            if (table == null)
+            {
+                return NotFound(new { Message = "ไม่พบโต๊ะ" });
+            }
+            return Ok(table);
+        }
+        [Authorize(Roles = "เจ้าของร้าน")]
+        [HttpDelete("deleteTable")]
+        public async Task<IActionResult> DeleteTable(int tableId)
+        {
+            var table = await _context.Tables
+                .FirstOrDefaultAsync(t => t.Table_id == tableId);
+            if (table == null)
+            {
+                return NotFound(new { Message = "ไม่พบโต๊ะ" });
+            }
+            _context.Tables.Remove(table);
+            await _context.SaveChangesAsync();
+            return Ok(new { Message = "ลบโต๊ะสำเร็จ" });
+        }
+        [HttpPut("updateTablestatus")]
+        public async Task<IActionResult> updateTableStatus(int tableId ,string status)
+        {
+           var table = await _context.Tables.FirstOrDefaultAsync(t => t.Table_id == tableId);
+        
+        if (table == null) return NotFound("ไม่พบข้อมูลโต๊ะ");
+
+        // 1. อัปเดตข้อมูลใน Database
+        table.Table_Status = status;
+        await _context.SaveChangesAsync();
+
+        // 2. ส่งข้อมูลอัปเดตไปยัง Client ทุกคนที่เชื่อมต่ออยู่แบบ Real-time
+        await _hubContext.Clients.All.SendAsync("UpdateTable", new { 
+            tableId = table.Table_id, 
+            status = table.Table_Status
+        });
+
+        return Ok(new { message = "อัปเดตสถานะสำเร็จ", data = table });
+        }
     }
+
 }
