@@ -7,6 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Microsoft.OpenApi.Models;
 using Buffet_Restaurant_Managment_System_API.Hubs;
+using Buffet_Restaurant_Managment_System_API.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 var jwtKey = builder.Configuration["Jwt:Key"];
@@ -88,6 +89,9 @@ var cloudinaryAccount = new Account(cloudName, apiKey, apiSecret);
 var cloudinary = new Cloudinary(cloudinaryAccount);
 builder.Services.AddSingleton(cloudinary);
 
+var Apikey_payment = Environment.GetEnvironmentVariable("API_KEY_PAYMENT");
+
+
 var connectionTemplate = builder.Configuration.GetConnectionString("DefaultConnection");
 var connectionString = connectionTemplate?
     .Replace("{DB_HOST}", Environment.GetEnvironmentVariable("DB_HOST"))
@@ -99,6 +103,9 @@ var connectionString = connectionTemplate?
 
 builder.Services.AddDbContext<restaurantDbContext>(options =>
     options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+    
+builder.Services.AddHttpClient<PromptPayService>();
+builder.Services.AddMemoryCache();
 
 var app = builder.Build();
 app.UseCors("AllowAngular");

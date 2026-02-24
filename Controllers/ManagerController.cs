@@ -44,6 +44,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 return NotFound(new { Message = "ไม่พบพนักงานที่รอการอนุมัติ" });
             }
             employee.Employee_Status = "ทำงานปัจจุบัน";
+            employee.Hire_Date = DateTime.Now;
             await _context.SaveChangesAsync();
             return Ok(new { Message = "อนุมัติพนักงานสำเร็จ" });
         }
@@ -73,7 +74,6 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 .ToListAsync();
             return Ok(employees);
         }
-        [Authorize(Roles = "เจ้าของร้าน")]
         [HttpGet("getEmployeeById")]
         public async Task<IActionResult> GetEmployeeById(int empId)
         {
@@ -164,17 +164,15 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             return Ok(new { Message = "ลบโต๊ะสำเร็จ" });
         }
         [HttpPut("updateTablestatus")]
-        public async Task<IActionResult> updateTableStatus(int tableId ,string status)
+        public async Task<IActionResult> updateTableStatus([FromBody] updateTableStatus req)
         {
-           var table = await _context.Tables.FirstOrDefaultAsync(t => t.Table_id == tableId);
+           var table = await _context.Tables.FirstOrDefaultAsync(t => t.Table_id == req.tableId);
         
         if (table == null) return NotFound("ไม่พบข้อมูลโต๊ะ");
 
-        // 1. อัปเดตข้อมูลใน Database
-        table.Table_Status = status;
+        table.Table_Status = req.status;
         await _context.SaveChangesAsync();
 
-        // 2. ส่งข้อมูลอัปเดตไปยัง Client ทุกคนที่เชื่อมต่ออยู่แบบ Real-time
         await _hubContext.Clients.All.SendAsync("UpdateTable", new { 
             tableId = table.Table_id, 
             status = table.Table_Status

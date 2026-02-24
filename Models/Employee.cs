@@ -17,5 +17,9 @@ namespace Buffet_Restaurant_Managment_System_API.Models
         public decimal? Wage { get; set; }
         public string? Employee_Type { get; set; } 
         public string? Employee_Status { get; set; }
+        [DataType(DataType.Date)]
+        public DateTime? Hire_Date { get; set; }
+        public TimeSpan? Start_Time { get; set; }
+        public TimeSpan? End_Time { get; set; }
     }
 }

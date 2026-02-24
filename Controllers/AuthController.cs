@@ -9,6 +9,9 @@ using System.Security.Claims;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
+using Microsoft.Extensions.Caching.Memory;
+using MailKit.Net.Smtp;
+using MimeKit;
 namespace Buffet_Restaurant_Managment_System_API.Controllers
 {
     [ApiController]
@@ -17,10 +20,12 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
     {
         private readonly restaurantDbContext _context;
         private readonly IConfiguration _configuration;
-        public AuthController(restaurantDbContext context, IConfiguration configuration)
+        private readonly IMemoryCache _cache;
+        public AuthController(restaurantDbContext context, IConfiguration configuration, IMemoryCache cache)
         {
             _context = context;
             _configuration = configuration;
+            _cache = cache;
         }
 
         [HttpPost("login-employee")]
@@ -196,6 +201,88 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             await _context.SaveChangesAsync();
 
             return Ok(new { Message = "สมัครสมาชิกสำเร็จ", Member = newMember });
+        }
+
+        [HttpPost("send-otp")]
+        public async Task<IActionResult>  SendOtp(string email)
+        {
+            var isMember = await _context.Members.AnyAsync(u => u.Email == email);
+            var isEmployee = await _context.Employee.AnyAsync(u => u.Email == email);
+
+            if (!isMember && !isEmployee)
+            {
+                return BadRequest("ไม่พบอีเมลนี้ในระบบ กรุณาตรวจสอบอีกครั้ง");
+            }
+            var otp = new Random().Next(100000, 999999).ToString();
+
+            
+            _cache.Set(email, otp, TimeSpan.FromMinutes(5));
+
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress("Buffet Restuarant", "66011212144@msu.ac.th"));
+            message.To.Add(new MailboxAddress("", email));
+            message.Subject = "รหัส OTP เพื่อเปลี่ยนรหัสผ่าน";
+            message.Body = new TextPart("plain") { Text = $"รหัส OTP ของคุณคือ: {otp} (มีอายุ 5 นาที)" };
+
+            using (var client = new SmtpClient())
+    {
+        try
+        {
+
+            await client.ConnectAsync("smtp.gmail.com", 587, MailKit.Security.SecureSocketOptions.StartTls);
+            await client.AuthenticateAsync("66011212144@msu.ac.th", "jgywcixvqrgnhtqq"); 
+            await client.SendAsync(message);
+            await client.DisconnectAsync(true);
+            return Ok("ส่ง OTP สำเร็จ");
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, "ส่งเมลไม่สำเร็จ: " + ex.Message);
+        }
+    }
+        }
+
+        [HttpPost("verify-otp")]
+        public async Task<IActionResult> VerifyOtp([FromBody] VerifyOtpReq model)
+        {
+            if (_cache.TryGetValue(model.Email, out string savedOtp))
+            {
+                if(savedOtp == model.OtpCode)
+                {
+                    _cache.Remove(model.Email);
+                    _cache.Set($"Verified_{model.Email}", true, TimeSpan.FromMinutes(10));
+                     return Ok(new { message = "OTP ถูกต้อง กรุณาตั้งรหัสผ่านใหม่" });
+                }
+            }
+
+            return BadRequest("รหัส OTP ไม่ถูกต้องหรือหมดอายุ");
+        }
+        [HttpPost("reset-password")]
+        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordReq model)
+        {
+            if (!_cache.TryGetValue($"Verified_{model.Email}", out bool isVerified) || !isVerified)
+            {   
+                return BadRequest("คำขอไม่ถูกต้อง กรุณายืนยัน OTP อีกครั้ง");
+            }
+            var Members = await _context.Members.FirstOrDefaultAsync(u => u.Email == model.Email);
+
+            if (Members != null)
+            {
+                Members.Password = BCrypt.Net.BCrypt.HashPassword(model.NewPassword);
+            }else{
+                var employee = await _context.Members.FirstOrDefaultAsync(e => e.Email == model.Email);
+                if (employee != null)
+                {
+                    employee.Password = BCrypt.Net.BCrypt.HashPassword(model.NewPassword);
+                }else{
+                    return NotFound("ไม่พบอีเมลนี้ในระบบ");
+                }
+            }
+
+            await _context.SaveChangesAsync();
+            _cache.Remove($"Verified_{model.Email}");
+
+            return Ok(new { message = "เปลี่ยนรหัสผ่านสำเร็จแล้ว!" });
         }
     }
 }
