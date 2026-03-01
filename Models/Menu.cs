@@ -22,7 +22,6 @@ namespace Buffet_Restaurant_API.Models
         public string Menu_Image { get; set; }
 
         [Column("Menu_Type")]
-
         public string Menu_Type { get; set; }
     }
 }

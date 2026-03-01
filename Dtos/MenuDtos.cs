@@ -8,8 +8,6 @@ namespace Buffet_Restaurant_API.Dtos
         public decimal? Price { get; set; }
         public string Category { get; set; }
         public string Menu_Type { get; set; }
-
-        // รับไฟล์รูปภาพเหมือนฝั่งพนักงาน
         public IFormFile? ImageFile { get; set; }
     }
 }
