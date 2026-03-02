@@ -10,6 +10,8 @@ using QRCoder;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.SignalR;
 using Buffet_Restaurant_Managment_System_API.Hubs;
+using System.Reflection.Metadata.Ecma335;
+using MimeKit.Encodings;
 namespace Buffet_Restaurant_Managment_System_API.Controllers
 {
     [ApiController]
@@ -163,6 +165,17 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             await _context.SaveChangesAsync();
             return Ok(new { Message = "ลบโต๊ะสำเร็จ" });
         }
+
+        [HttpPut("updateTables")]
+        public async Task<IActionResult> updateTables([FromBody]updateTables req)
+        {
+            var table = await _context.Tables.FirstOrDefaultAsync(t => t.Table_id == req.Emp_id);
+            if(table == null) return NotFound("ไม่พบข้อมูลโต๊ะ");
+            table.Table_Number = req.Table_Number??table.Table_Number;
+            await _context.SaveChangesAsync();
+            return Ok(new { Message = "อัปเดตโต๊ะสำเร็จ", data = table});
+            
+        }
         [HttpPut("updateTablestatus")]
         public async Task<IActionResult> updateTableStatus([FromBody] updateTableStatus req)
         {
@@ -170,7 +183,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
         
         if (table == null) return NotFound("ไม่พบข้อมูลโต๊ะ");
 
-        table.Table_Status = req.status;
+        table.Table_Status = req.status ?? table.Table_Status;
         await _context.SaveChangesAsync();
 
         await _hubContext.Clients.All.SendAsync("UpdateTable", new { 
@@ -180,6 +193,59 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
 
         return Ok(new { message = "อัปเดตสถานะสำเร็จ", data = table });
         }
+
+        [HttpPut("updateDepartmentEmp")]
+        public async Task<IActionResult> updataDepartmentEmp([FromBody]updataDepartmentEmp req)
+        {
+            var employee = await _context.Employee.FirstOrDefaultAsync(e => e.Emp_id == req.Emp_id);
+
+            if(employee == null) return NotFound("ไม่พบพนักงาน");
+
+            employee.Department = req.Department ?? employee.Department;
+            await _context.SaveChangesAsync();
+
+            return Ok(new{ message = "อัปเดพแผนกของพนักงานสำเร็จ", data = employee}); 
+        }
+        
+        [HttpPut("updateStatusEmp")]
+        public async Task<IActionResult> updateStatusEmp([FromBody]updateStatusEmpReq req)
+        {
+            var employee = await _context.Employee.FirstOrDefaultAsync(e => e.Emp_id == req.Emp_id);
+
+            if(employee == null) return NotFound("ไม่พบพนักงาน");
+
+            employee.Employee_Status = req.Employee_Status ?? employee.Employee_Status;
+            await _context.SaveChangesAsync();
+            return Ok(new{ message = "อัปเดตสถานะพนักงานเรียบร้อย", data = employee});
+        }
+
+        [HttpPut("updateTypeEmp")]
+        public async Task<IActionResult> updateTypeEmp([FromBody]updateTypeEmpReq req)
+        {
+            var employee = await _context.Employee.FirstOrDefaultAsync(e => e.Emp_id == req.Emp_id);
+
+            if(employee == null) return NotFound("ไม่พบพนักงาน");
+
+            employee.Employee_Type = req.Employee_Type;
+            await _context.SaveChangesAsync();
+            return Ok(new{ message = "อัปเดตประเภทของพนังงานเรียบร้อย", Data = employee});
+        }
+        [HttpPut("updateWageStartTimeEndTimeEmp")]
+        public async Task<IActionResult> updateWageStartTimeEndTimeEmp([FromBody]updateWageStartTimeEndTimeEmpReq req)
+        {
+            var employee = await _context.Employee.FirstOrDefaultAsync(e => e.Emp_id == req.Emp_id);
+
+            if(employee == null) return NotFound("ไม่พบพนักงาน");
+
+            employee.Wage = req.Wage ?? employee.Wage;
+            employee.Start_Time = req.Start_Time ?? employee.Start_Time;
+            employee.End_Time = req.End_Time ?? employee.End_Time;
+            if(req.Wage<0)return BadRequest("ค่าจ้างต้องไม่ติดลบ"); 
+            await _context.SaveChangesAsync();
+            return Ok(new {message = "อัฟเดตสำเร็จ", data = employee});
+
+        }
+
     }
 
 }
