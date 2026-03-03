@@ -14,8 +14,7 @@ namespace Buffet_Restaurant_API.Models
         public int Adult_Count { get; set; } = 0;
         public int Child_Count { get; set; } = 0;
         public TimeSpan? Booking_Time { get; set; }
-
-        // Navigation
+        public string? QR_Url { get; set; }
         public Member? Member { get; set; }
         public ICollection<GroupTable> GroupTables { get; set; } = new List<GroupTable>();
     }
@@ -27,7 +26,7 @@ namespace Buffet_Restaurant_API.Models
         public int? Booking_id { get; set; }
         public int? Table_id { get; set; }
 
-        // Navigation
+
         public Booking? Booking { get; set; }
         public Tables? Table { get; set; }
     }

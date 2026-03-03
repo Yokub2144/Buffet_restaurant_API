@@ -76,7 +76,8 @@ namespace Buffet_Restaurant_API.Controllers
                     Booking_Status = b.Booking_Status,
                     Adult_Count = b.Adult_Count,
                     Child_Count = b.Child_Count,
-                    Tables_Booked = b.GroupTables.Select(gt => gt.Table!.Table_Number).ToList()
+                    Tables_Booked = b.GroupTables.Select(gt => gt.Table!.Table_Number).ToList(),
+                    QR_Url = b.QR_Url
                 })
                 .ToListAsync();
             return Ok(bookings);
@@ -104,6 +105,48 @@ namespace Buffet_Restaurant_API.Controllers
                 Adult_Count = booking.Adult_Count,
                 Child_Count = booking.Child_Count,
                 Tables_Booked = booking.GroupTables.Select(gt => gt.Table?.Table_Number ?? "").ToList()
+            });
+        }
+        [HttpGet("checkin-info")]
+        public async Task<IActionResult> GetCheckinInfo([FromQuery] int bookingId, [FromQuery] int tableId)
+        {
+            var booking = await _context.Bookings
+                .Include(b => b.Member)
+                .Include(b => b.GroupTables).ThenInclude(gt => gt.Table)
+                .FirstOrDefaultAsync(b => b.Booking_id == bookingId);
+
+            if (booking == null)
+                return NotFound(new { message = "ไม่พบข้อมูลการจอง" });
+
+
+            var targetTable = booking.GroupTables
+                .FirstOrDefault(gt => gt.Table_id == tableId);
+
+            if (targetTable == null)
+                return NotFound(new { message = "โต๊ะนี้ไม่ได้อยู่ในการจองนี้" });
+
+            return Ok(new
+            {
+                booking_id = booking.Booking_id,
+                booking_status = booking.Booking_Status,
+                booking_date = booking.Booking_Date,
+                booking_time = booking.Booking_Time,
+                adult_count = booking.Adult_Count,
+                child_count = booking.Child_Count,
+                member = new
+                {
+                    name = booking.Member?.Fullname ?? "",
+                    phone = booking.Member?.Phone ?? ""
+                },
+                table = new
+                {
+                    table_id = targetTable.Table?.Table_id,
+                    table_number = targetTable.Table?.Table_Number ?? ""
+                },
+                all_tables = booking.GroupTables
+                    .Select(gt => gt.Table?.Table_Number ?? "")
+                    .Where(n => n != "")
+                    .ToList()
             });
         }
 
@@ -236,6 +279,19 @@ namespace Buffet_Restaurant_API.Controllers
                     .Where(t => tableIds.Contains(t.Table_id)).ToListAsync();
 
                 tables.ForEach(t => t.Table_Status = "ติดจอง");
+
+
+                var firstTableId = tableIds.FirstOrDefault();
+                string qrImageUrl = string.Empty;
+
+                if (firstTableId != 0)
+                {
+                    var qrContent = $"https://buffet-restaurant-management-system.vercel.app/Checkin?bookingId={booking.Booking_id}&tableId={firstTableId}";
+                    var fileName = $"booking_{booking.Booking_id}_main_qr";
+                    qrImageUrl = await GenerateAndUploadQr(qrContent, fileName);
+                    booking.QR_Url = qrImageUrl;
+                }
+
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
@@ -245,21 +301,12 @@ namespace Buffet_Restaurant_API.Controllers
                         .SendAsync("UpdateTable", new { tableId = table.Table_id, status = "ติดจอง" });
                 }
 
-                var qrList = new List<object>();
-                foreach (var gt in booking.GroupTables.Where(gt => gt.Table_id.HasValue))
-                {
-                    var qrContent = $"https://buffet-restaurant-management-system.vercel.app/Checkin?bookingId={booking.Booking_id}&tableId={gt.Table_id}";
-                    var fileName = $"booking_{booking.Booking_id}_table_{gt.Table_id}";
-                    var qrImageUrl = await GenerateAndUploadQr(qrContent, fileName);
-                    qrList.Add(new { tableId = gt.Table_id, qrImageUrl });
-                }
-
                 return Ok(new
                 {
                     message = "ชำระเงินสำเร็จ (Mock)",
                     booking_id = booking.Booking_id,
                     booking_status = "Confirmed",
-                    qr_list = qrList
+                    qr_url = qrImageUrl
                 });
             }
             catch (Exception ex)
@@ -268,7 +315,6 @@ namespace Buffet_Restaurant_API.Controllers
                 return StatusCode(500, new { message = ex.Message });
             }
         }
-
 
 
         [HttpPatch("{id}/status")]
@@ -318,7 +364,73 @@ namespace Buffet_Restaurant_API.Controllers
                 return StatusCode(500, new { message = ex.Message });
             }
         }
+        [HttpPut("update/{id}")]
+        public async Task<IActionResult> UpdateBooking(int id, [FromBody] UpdateBookingDto dto)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
 
+                var booking = await _context.Bookings
+                    .Include(b => b.GroupTables)
+                    .FirstOrDefaultAsync(b => b.Booking_id == id);
+
+                if (booking == null)
+                    return NotFound(new { message = "ไม่พบการจอง" });
+
+
+                if (booking.Booking_Status == "Completed" || booking.Booking_Status == "Cancelled")
+                    return BadRequest(new { message = $"ไม่สามารถแก้ไขได้เนื่องจากสถานะปัจจุบันคือ '{booking.Booking_Status}'" });
+
+
+                if (booking.Booking_Time != dto.Time)
+                {
+
+                    var currentTableIds = booking.GroupTables
+                        .Where(gt => gt.Table_id.HasValue)
+                        .Select(gt => gt.Table_id!.Value)
+                        .ToList();
+
+                    bool isTimeConflict = await _context.Bookings
+                        .Include(b => b.GroupTables)
+                        .AnyAsync(b =>
+                            b.Booking_id != id &&
+                            b.Booking_Date.Date == booking.Booking_Date.Date &&
+                            b.Booking_Time == dto.Time &&
+                            b.Booking_Status != "Cancelled" &&
+                            b.GroupTables.Any(gt => gt.Table_id.HasValue && currentTableIds.Contains(gt.Table_id.Value))
+                        );
+
+                    if (isTimeConflict)
+                    {
+
+                        return StatusCode(409, new { message = "เวลาใหม่ที่คุณเลือก มีคิวอื่นจองโต๊ะนี้ไปแล้ว" });
+                    }
+
+
+                    booking.Booking_Time = dto.Time;
+                }
+
+
+                booking.Adult_Count = dto.AdultCount;
+                booking.Child_Count = dto.ChildCount;
+
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return Ok(new
+                {
+                    message = "อัปเดตข้อมูลการจองสำเร็จ",
+                    booking_id = booking.Booking_id
+                });
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> CancelBooking(int id)

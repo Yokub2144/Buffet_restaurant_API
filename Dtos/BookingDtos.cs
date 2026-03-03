@@ -26,10 +26,19 @@ namespace Buffet_Restaurant_API.Dtos
         public int Adult_Count { get; set; }
         public int Child_Count { get; set; }
         public List<string> Tables_Booked { get; set; } = new();
+        public string? QR_Url { get; set; }
+
     }
     public class CheckinDto
     {
         public int BookingId { get; set; }
         public int TableId { get; set; }
     }
+    public class UpdateBookingDto
+    {
+        public int AdultCount { get; set; }
+        public int ChildCount { get; set; }
+        public TimeSpan Time { get; set; }
+    }
+
 }
