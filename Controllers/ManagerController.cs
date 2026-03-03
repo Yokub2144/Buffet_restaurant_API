@@ -40,7 +40,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
         public async Task<IActionResult> ApproveEmployee(int empId)
         {
             var employee = await _context.Employee
-                .FirstOrDefaultAsync(e => e.Emp_id == empId && (e.Employee_Status == "" || e.Employee_Status == null ));
+                .FirstOrDefaultAsync(e => e.Emp_id == empId && (e.Employee_Status == "" || e.Employee_Status == null));
             if (employee == null)
             {
                 return NotFound(new { Message = "ไม่พบพนักงานที่รอการอนุมัติ" });
@@ -89,7 +89,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
         }
         [Authorize(Roles = "เจ้าของร้าน")]
         [HttpPost("AddTable")]
-        public async Task<IActionResult> AddTable([FromBody]tableDtos table, [FromServices] Cloudinary cloudinary)
+        public async Task<IActionResult> AddTable([FromBody] tableDtos table, [FromServices] Cloudinary cloudinary)
         {
             var existingTable = await _context.Tables
                 .FirstOrDefaultAsync(t => t.Table_Number == table.Table_Number);
@@ -105,7 +105,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 PngByteQRCode qrCode = new PngByteQRCode(qrCodeData);
                 byte[] qrCodeBytes = qrCode.GetGraphic(20);
                 using (var stream = new MemoryStream(qrCodeBytes))
-                {   
+                {
                     var uploadParams = new ImageUploadParams()
                     {
                         File = new FileDescription($"qr_table_{table.Table_Number}.png", stream),
@@ -114,8 +114,8 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                     };
 
                     var uploadResult = await cloudinary.UploadAsync(uploadParams);
-            
-                    if(uploadResult.Error != null)
+
+                    if (uploadResult.Error != null)
                     {
                         return StatusCode(500, "ไม่สามารถอัปโหลด QR Code ได้: " + uploadResult.Error.Message);
                     }
@@ -167,83 +167,106 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
         }
 
         [HttpPut("updateTables")]
-        public async Task<IActionResult> updateTables([FromBody]updateTables req)
+        public async Task<IActionResult> updateTables([FromBody] updateTables req)
         {
             var table = await _context.Tables.FirstOrDefaultAsync(t => t.Table_id == req.Emp_id);
-            if(table == null) return NotFound("ไม่พบข้อมูลโต๊ะ");
-            table.Table_Number = req.Table_Number??table.Table_Number;
+            if (table == null) return NotFound("ไม่พบข้อมูลโต๊ะ");
+            table.Table_Number = req.Table_Number ?? table.Table_Number;
             await _context.SaveChangesAsync();
-            return Ok(new { Message = "อัปเดตโต๊ะสำเร็จ", data = table});
-            
+            return Ok(new { Message = "อัปเดตโต๊ะสำเร็จ", data = table });
+
         }
         [HttpPut("updateTablestatus")]
         public async Task<IActionResult> updateTableStatus([FromBody] updateTableStatus req)
         {
-           var table = await _context.Tables.FirstOrDefaultAsync(t => t.Table_id == req.tableId);
-        
-        if (table == null) return NotFound("ไม่พบข้อมูลโต๊ะ");
+            var table = await _context.Tables.FirstOrDefaultAsync(t => t.Table_id == req.tableId);
 
-        table.Table_Status = req.status ?? table.Table_Status;
-        await _context.SaveChangesAsync();
+            if (table == null) return NotFound("ไม่พบข้อมูลโต๊ะ");
 
-        await _hubContext.Clients.All.SendAsync("UpdateTable", new { 
-            tableId = table.Table_id, 
-            status = table.Table_Status
-        });
+            table.Table_Status = req.status ?? table.Table_Status;
+            await _context.SaveChangesAsync();
 
-        return Ok(new { message = "อัปเดตสถานะสำเร็จ", data = table });
+            await _hubContext.Clients.All.SendAsync("UpdateTable", new
+            {
+                tableId = table.Table_id,
+                status = table.Table_Status
+            });
+
+            return Ok(new { message = "อัปเดตสถานะสำเร็จ", data = table });
         }
 
         [HttpPut("updateDepartmentEmp")]
-        public async Task<IActionResult> updataDepartmentEmp([FromBody]updataDepartmentEmp req)
+        public async Task<IActionResult> updataDepartmentEmp([FromBody] updataDepartmentEmp req)
         {
             var employee = await _context.Employee.FirstOrDefaultAsync(e => e.Emp_id == req.Emp_id);
 
-            if(employee == null) return NotFound("ไม่พบพนักงาน");
+            if (employee == null) return NotFound("ไม่พบพนักงาน");
 
             employee.Department = req.Department ?? employee.Department;
             await _context.SaveChangesAsync();
 
-            return Ok(new{ message = "อัปเดพแผนกของพนักงานสำเร็จ", data = employee}); 
+            return Ok(new { message = "อัปเดพแผนกของพนักงานสำเร็จ", data = employee });
         }
-        
+
         [HttpPut("updateStatusEmp")]
-        public async Task<IActionResult> updateStatusEmp([FromBody]updateStatusEmpReq req)
+        public async Task<IActionResult> updateStatusEmp([FromBody] updateStatusEmpReq req)
         {
             var employee = await _context.Employee.FirstOrDefaultAsync(e => e.Emp_id == req.Emp_id);
 
-            if(employee == null) return NotFound("ไม่พบพนักงาน");
+            if (employee == null) return NotFound("ไม่พบพนักงาน");
 
             employee.Employee_Status = req.Employee_Status ?? employee.Employee_Status;
             await _context.SaveChangesAsync();
-            return Ok(new{ message = "อัปเดตสถานะพนักงานเรียบร้อย", data = employee});
+            return Ok(new { message = "อัปเดตสถานะพนักงานเรียบร้อย", data = employee });
         }
 
         [HttpPut("updateTypeEmp")]
-        public async Task<IActionResult> updateTypeEmp([FromBody]updateTypeEmpReq req)
+        public async Task<IActionResult> updateTypeEmp([FromBody] updateTypeEmpReq req)
         {
             var employee = await _context.Employee.FirstOrDefaultAsync(e => e.Emp_id == req.Emp_id);
 
-            if(employee == null) return NotFound("ไม่พบพนักงาน");
+            if (employee == null) return NotFound("ไม่พบพนักงาน");
 
             employee.Employee_Type = req.Employee_Type;
             await _context.SaveChangesAsync();
-            return Ok(new{ message = "อัปเดตประเภทของพนังงานเรียบร้อย", Data = employee});
+            return Ok(new { message = "อัปเดตประเภทของพนังงานเรียบร้อย", Data = employee });
         }
         [HttpPut("updateWageStartTimeEndTimeEmp")]
-        public async Task<IActionResult> updateWageStartTimeEndTimeEmp([FromBody]updateWageStartTimeEndTimeEmpReq req)
+        public async Task<IActionResult> updateWageStartTimeEndTimeEmp([FromBody] updateWageStartTimeEndTimeEmpReq req)
         {
             var employee = await _context.Employee.FirstOrDefaultAsync(e => e.Emp_id == req.Emp_id);
 
-            if(employee == null) return NotFound("ไม่พบพนักงาน");
+            if (employee == null) return NotFound("ไม่พบพนักงาน");
 
-            employee.Wage = req.Wage ?? employee.Wage;
-            employee.Start_Time = req.Start_Time ?? employee.Start_Time;
-            employee.End_Time = req.End_Time ?? employee.End_Time;
-            if(req.Wage<0)return BadRequest("ค่าจ้างต้องไม่ติดลบ"); 
+            if (req.Wage.HasValue)
+            {
+                if (req.Wage.Value < 0) return BadRequest("ค่าจ้างต้องไม่ติดลบ");
+                employee.Wage = (int)req.Wage.Value;
+            }
+
+
+            if (req.Start_Time.HasValue)
+            {
+                employee.Start_Time = req.Start_Time.Value;
+            }
+
+
+            if (req.End_Time.HasValue)
+            {
+                employee.End_Time = req.End_Time.Value;
+            }
             await _context.SaveChangesAsync();
-            return Ok(new {message = "อัฟเดตสำเร็จ", data = employee});
-
+            return Ok(new
+            {
+                message = "อัฟเดตสำเร็จ",
+                data = new
+                {
+                    employee.Emp_id,
+                    employee.Wage,
+                    Start_Time = employee.Start_Time?.ToString(@"hh\:mm"),
+                    End_Time = employee.End_Time?.ToString(@"hh\:mm")
+                }
+            });
         }
 
     }
