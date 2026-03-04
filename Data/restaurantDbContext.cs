@@ -48,7 +48,16 @@ namespace Buffet_Restaurant_Managment_System_API.Data
                  .WithMany()
                  .HasForeignKey(x => x.Table_id);
             });
+            modelBuilder.Entity<Payment>(e =>
+            {
+                e.ToTable("Payment");
+                e.HasKey(x => x.Payment_ID);
+                e.HasOne(x => x.Booking)
+                 .WithMany()
+                 .HasForeignKey(x => x.Booking_id);
+            });
         }
+        public DbSet<Payment> Payments { get; set; }
         public DbSet<Cart> Carts { get; set; }
         public DbSet<Cart_item> CartItems { get; set; }
         public DbSet<Menu> Menus { get; set; }
