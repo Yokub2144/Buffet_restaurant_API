@@ -15,6 +15,9 @@ namespace Buffet_Restaurant_API.Models
         public int Child_Count { get; set; } = 0;
         public TimeSpan? Booking_Time { get; set; }
         public string? QR_Url { get; set; }
+        public decimal Deposit_Amount { get; set; } = 0;
+        public string? PaymentTransactionId { get; set; }
+
         public Member? Member { get; set; }
         public ICollection<GroupTable> GroupTables { get; set; } = new List<GroupTable>();
     }

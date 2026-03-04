@@ -19,6 +19,10 @@ namespace Buffet_Restaurant_API.Controllers
         private readonly IHubContext<tableStatusHub> _hubContext;
         private readonly Cloudinary _cloudinary;
 
+        // ราคา hardcode ทดสอบ 
+        private const decimal PricePerAdult = 1m;
+        private const decimal PricePerChild = 1m;
+
         public BookingController(
             restaurantDbContext context,
             IHubContext<tableStatusHub> hubContext,
@@ -48,7 +52,6 @@ namespace Buffet_Restaurant_API.Controllers
             return uploadResult.SecureUrl.ToString();
         }
 
-
         [HttpGet("available-tables")]
         public async Task<IActionResult> GetAvailableTables()
         {
@@ -57,7 +60,6 @@ namespace Buffet_Restaurant_API.Controllers
                 .ToListAsync();
             return Ok(tables);
         }
-
 
         [HttpGet("member/{memberId}")]
         public async Task<IActionResult> GetByMember(int memberId)
@@ -83,7 +85,6 @@ namespace Buffet_Restaurant_API.Controllers
             return Ok(bookings);
         }
 
-
         [HttpGet("{id}")]
         public async Task<IActionResult> GetBooking(int id)
         {
@@ -107,6 +108,7 @@ namespace Buffet_Restaurant_API.Controllers
                 Tables_Booked = booking.GroupTables.Select(gt => gt.Table?.Table_Number ?? "").ToList()
             });
         }
+
         [HttpGet("checkin-info")]
         public async Task<IActionResult> GetCheckinInfo([FromQuery] int bookingId, [FromQuery] int tableId)
         {
@@ -118,10 +120,7 @@ namespace Buffet_Restaurant_API.Controllers
             if (booking == null)
                 return NotFound(new { message = "ไม่พบข้อมูลการจอง" });
 
-
-            var targetTable = booking.GroupTables
-                .FirstOrDefault(gt => gt.Table_id == tableId);
-
+            var targetTable = booking.GroupTables.FirstOrDefault(gt => gt.Table_id == tableId);
             if (targetTable == null)
                 return NotFound(new { message = "โต๊ะนี้ไม่ได้อยู่ในการจองนี้" });
 
@@ -150,7 +149,7 @@ namespace Buffet_Restaurant_API.Controllers
             });
         }
 
-
+        //  สร้างการจอง + คำนวณยอดมัดจำ
         [HttpPost("create")]
         public async Task<IActionResult> CreateBooking([FromBody] CreateBookingDto dto)
         {
@@ -167,6 +166,9 @@ namespace Buffet_Restaurant_API.Controllers
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
+                decimal total = (dto.Adult_Count * PricePerAdult) + (dto.Child_Count * PricePerChild);
+                decimal deposit = Math.Round(total / 2, 2);
+
                 var booking = new Booking
                 {
                     Member_id = dto.Member_id,
@@ -174,7 +176,8 @@ namespace Buffet_Restaurant_API.Controllers
                     Booking_Time = dto.Booking_Time,
                     Adult_Count = dto.Adult_Count,
                     Child_Count = dto.Child_Count,
-                    Booking_Status = "Pending"
+                    Booking_Status = "Pending",
+                    Deposit_Amount = deposit        // ← เก็บยอดมัดจำไว้ใช้ตอนสร้าง QR
                 };
                 _context.Bookings.Add(booking);
                 await _context.SaveChangesAsync();
@@ -190,7 +193,16 @@ namespace Buffet_Restaurant_API.Controllers
 
                 return CreatedAtAction(nameof(GetBooking),
                     new { id = booking.Booking_id },
-                    new { message = "สร้างการจองสำเร็จ รอชำระเงิน", booking_id = booking.Booking_id, tables = availableTables.Select(t => t.Table_Number) });
+                    new
+                    {
+                        booking_id = booking.Booking_id,
+                        tables = availableTables.Select(t => t.Table_Number),
+                        price_per_adult = PricePerAdult,
+                        price_per_child = PricePerChild,
+                        total_amount = total,
+                        deposit_amount = deposit,           // จ่ายตอนนี้
+                        remaining_amount = total - deposit    // จ่ายที่เคาน์เตอร์
+                    });
             }
             catch (Exception ex)
             {
@@ -198,7 +210,6 @@ namespace Buffet_Restaurant_API.Controllers
                 return StatusCode(500, new { message = ex.Message });
             }
         }
-
 
         [HttpPost("checkin")]
         public async Task<IActionResult> CheckIn([FromBody] CheckinDto dto)
@@ -219,7 +230,6 @@ namespace Buffet_Restaurant_API.Controllers
                 if (!hasTable)
                     return BadRequest(new { message = "โต๊ะนี้ไม่ได้อยู่ในการจองนี้" });
 
-
                 var allTableIds = booking.GroupTables
                     .Where(gt => gt.Table_id.HasValue)
                     .Select(gt => gt.Table_id!.Value).ToList();
@@ -233,12 +243,9 @@ namespace Buffet_Restaurant_API.Controllers
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-
                 foreach (var table in allTables)
-                {
                     await _hubContext.Clients.All
                         .SendAsync("UpdateTable", new { tableId = table.Table_id, status = "ไม่ว่าง" });
-                }
 
                 return Ok(new
                 {
@@ -254,68 +261,6 @@ namespace Buffet_Restaurant_API.Controllers
                 return StatusCode(500, new { message = ex.Message });
             }
         }
-
-        [HttpPost("mock-payment/{id}")]
-        public async Task<IActionResult> MockPayment(int id)
-        {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
-            {
-                var booking = await _context.Bookings
-                    .Include(b => b.GroupTables)
-                    .FirstOrDefaultAsync(b => b.Booking_id == id);
-
-                if (booking == null) return NotFound(new { message = "ไม่พบการจอง" });
-                if (booking.Booking_Status != "Pending")
-                    return BadRequest(new { message = $"สถานะปัจจุบันคือ '{booking.Booking_Status}'" });
-
-                booking.Booking_Status = "Confirmed";
-
-                var tableIds = booking.GroupTables
-                    .Where(gt => gt.Table_id.HasValue)
-                    .Select(gt => gt.Table_id!.Value).ToList();
-
-                var tables = await _context.Tables
-                    .Where(t => tableIds.Contains(t.Table_id)).ToListAsync();
-
-                tables.ForEach(t => t.Table_Status = "ติดจอง");
-
-
-                var firstTableId = tableIds.FirstOrDefault();
-                string qrImageUrl = string.Empty;
-
-                if (firstTableId != 0)
-                {
-                    var qrContent = $"https://buffet-restaurant-management-system.vercel.app/Checkin?bookingId={booking.Booking_id}&tableId={firstTableId}";
-                    var fileName = $"booking_{booking.Booking_id}_main_qr";
-                    qrImageUrl = await GenerateAndUploadQr(qrContent, fileName);
-                    booking.QR_Url = qrImageUrl;
-                }
-
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-
-                foreach (var table in tables)
-                {
-                    await _hubContext.Clients.All
-                        .SendAsync("UpdateTable", new { tableId = table.Table_id, status = "ติดจอง" });
-                }
-
-                return Ok(new
-                {
-                    message = "ชำระเงินสำเร็จ (Mock)",
-                    booking_id = booking.Booking_id,
-                    booking_status = "Confirmed",
-                    qr_url = qrImageUrl
-                });
-            }
-            catch (Exception ex)
-            {
-                await transaction.RollbackAsync();
-                return StatusCode(500, new { message = ex.Message });
-            }
-        }
-
 
         [HttpPatch("{id}/status")]
         public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateBookingStatusDto dto)
@@ -345,10 +290,8 @@ namespace Buffet_Restaurant_API.Controllers
                     await transaction.CommitAsync();
 
                     foreach (var table in tables)
-                    {
                         await _hubContext.Clients.All
                             .SendAsync("UpdateTable", new { tableId = table.Table_id, status = "ว่าง" });
-                    }
                 }
                 else
                 {
@@ -364,13 +307,13 @@ namespace Buffet_Restaurant_API.Controllers
                 return StatusCode(500, new { message = ex.Message });
             }
         }
+
         [HttpPut("update/{id}")]
         public async Task<IActionResult> UpdateBooking(int id, [FromBody] UpdateBookingDto dto)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-
                 var booking = await _context.Bookings
                     .Include(b => b.GroupTables)
                     .FirstOrDefaultAsync(b => b.Booking_id == id);
@@ -378,18 +321,14 @@ namespace Buffet_Restaurant_API.Controllers
                 if (booking == null)
                     return NotFound(new { message = "ไม่พบการจอง" });
 
-
                 if (booking.Booking_Status == "Completed" || booking.Booking_Status == "Cancelled")
                     return BadRequest(new { message = $"ไม่สามารถแก้ไขได้เนื่องจากสถานะปัจจุบันคือ '{booking.Booking_Status}'" });
 
-
                 if (booking.Booking_Time != dto.Time)
                 {
-
                     var currentTableIds = booking.GroupTables
                         .Where(gt => gt.Table_id.HasValue)
-                        .Select(gt => gt.Table_id!.Value)
-                        .ToList();
+                        .Select(gt => gt.Table_id!.Value).ToList();
 
                     bool isTimeConflict = await _context.Bookings
                         .Include(b => b.GroupTables)
@@ -402,28 +341,18 @@ namespace Buffet_Restaurant_API.Controllers
                         );
 
                     if (isTimeConflict)
-                    {
-
                         return StatusCode(409, new { message = "เวลาใหม่ที่คุณเลือก มีคิวอื่นจองโต๊ะนี้ไปแล้ว" });
-                    }
-
 
                     booking.Booking_Time = dto.Time;
                 }
 
-
                 booking.Adult_Count = dto.AdultCount;
                 booking.Child_Count = dto.ChildCount;
-
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                return Ok(new
-                {
-                    message = "อัปเดตข้อมูลการจองสำเร็จ",
-                    booking_id = booking.Booking_id
-                });
+                return Ok(new { message = "อัปเดตข้อมูลการจองสำเร็จ", booking_id = booking.Booking_id });
             }
             catch (Exception ex)
             {

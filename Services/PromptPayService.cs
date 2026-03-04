@@ -5,11 +5,11 @@ namespace Buffet_Restaurant_Managment_System_API.Services
 {
     public class PromptPayService
     {
-        
+
         private readonly HttpClient _httpClient;
         private readonly string? _apiKey;
 
-        public PromptPayService(HttpClient httpClient )
+        public PromptPayService(HttpClient httpClient)
         {
             _httpClient = httpClient;
             _apiKey = Environment.GetEnvironmentVariable("API_KEY_PAYMENT");
@@ -17,8 +17,9 @@ namespace Buffet_Restaurant_Managment_System_API.Services
 
         public async Task<string> GeneratePromptPayQr(decimal amount)
         {
+            Console.WriteLine($"=== API KEY VALUE: [{_apiKey}] ===");
+
             var url = "https://api.inwcloud.shop/v1/promptpay/generate";
-            
             var payload = new { amount = amount };
             var json = JsonSerializer.Serialize(payload);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -41,7 +42,7 @@ namespace Buffet_Restaurant_Managment_System_API.Services
             var url = "https://api.inwcloud.shop/v1/promptpay/check";
 
             _httpClient.DefaultRequestHeaders.Clear();
-            _httpClient.DefaultRequestHeaders.Authorization = 
+            _httpClient.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _apiKey);
 
             var payload = new { transactionId = transactionId };
@@ -53,7 +54,7 @@ namespace Buffet_Restaurant_Managment_System_API.Services
 
             if (response.IsSuccessStatusCode)
             {
-                return result; 
+                return result;
             }
 
             return $"Error: {response.StatusCode} - {result}";
