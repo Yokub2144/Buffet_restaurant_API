@@ -40,5 +40,8 @@ namespace Buffet_Restaurant_API.Dtos
         public int ChildCount { get; set; }
         public TimeSpan Time { get; set; }
     }
-
+    public class QrRequestDto
+    {
+        public int BookingId { get; set; }
+    }
 }
