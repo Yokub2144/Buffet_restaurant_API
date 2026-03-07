@@ -61,6 +61,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
 
 
 
+
         // [HttpPost("generate-qr")]
         // public async Task<IActionResult> CreateQr([FromBody] decimal amount)
         // {

@@ -43,6 +43,5 @@ namespace Buffet_Restaurant_API.Dtos
     public class QrRequestDto
     {
         public int BookingId { get; set; }
-
     }
 }
