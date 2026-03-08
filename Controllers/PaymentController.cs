@@ -42,11 +42,15 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
 
             var qrResult = await _promptPayService.GeneratePromptPayQr(booking.Deposit_Amount);
 
+            Console.WriteLine($"=== QR RESULT: {qrResult} ===");
+            var parsed = JsonSerializer.Deserialize<JsonElement>(qrResult);
+            var transactionId = parsed.GetProperty("data").GetProperty("transactionId").GetString();
             return Ok(new
             {
                 qr_data = qrResult,
                 amount = booking.Deposit_Amount,
-                booking_id = booking.Booking_id
+                booking_id = booking.Booking_id,
+                transaction_id = transactionId,
             });
         }
         [HttpPost("check-status")]
@@ -56,6 +60,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 return BadRequest("Transaction ID is required");
 
             var result = await _promptPayService.CheckPaymentStatus(transactionId);
+            Console.WriteLine($"=== CHECK STATUS RESULT: {result} ===");
             return Ok(result);
         }
 

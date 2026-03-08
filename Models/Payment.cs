@@ -15,5 +15,6 @@ namespace Buffet_Restaurant_Managment_System_API.Models
         public string? TransactionId { get; set; }
 
         public Booking? Booking { get; set; }
+
     }
 }
