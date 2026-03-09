@@ -169,7 +169,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
         [HttpPut("updateTables")]
         public async Task<IActionResult> updateTables([FromBody] updateTables req)
         {
-            var table = await _context.Tables.FirstOrDefaultAsync(t => t.Table_id == req.Emp_id);
+            var table = await _context.Tables.FirstOrDefaultAsync(t => t.Table_id == req.Table_id);
             if (table == null) return NotFound("ไม่พบข้อมูลโต๊ะ");
             table.Table_Number = req.Table_Number ?? table.Table_Number;
             await _context.SaveChangesAsync();

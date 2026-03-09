@@ -60,7 +60,6 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 return BadRequest("Transaction ID is required");
 
             var result = await _promptPayService.CheckPaymentStatus(transactionId);
-            Console.WriteLine($"=== CHECK STATUS RESULT: {result} ===");
             return Ok(result);
         }
 
