@@ -33,24 +33,6 @@ namespace Buffet_Restaurant_API.Controllers
             _cloudinary = cloudinary;
         }
 
-        private async Task<string> GenerateAndUploadQr(string qrContent, string fileName)
-        {
-            using var qrGenerator = new QRCodeGenerator();
-            var qrCodeData = qrGenerator.CreateQrCode(qrContent, QRCodeGenerator.ECCLevel.Q);
-            var qrCode = new PngByteQRCode(qrCodeData);
-            byte[] qrBytes = qrCode.GetGraphic(20);
-            using var stream = new MemoryStream(qrBytes);
-            var uploadParams = new ImageUploadParams()
-            {
-                File = new FileDescription($"{fileName}.png", stream),
-                Folder = "restaurant_booking_qrcodes",
-                PublicId = $"{fileName}_{Guid.NewGuid()}"
-            };
-            var uploadResult = await _cloudinary.UploadAsync(uploadParams);
-            if (uploadResult.Error != null)
-                throw new Exception("อัพโหลด QR ไม่สำเร็จ: " + uploadResult.Error.Message);
-            return uploadResult.SecureUrl.ToString();
-        }
 
         [HttpGet("available-tables")]
         public async Task<IActionResult> GetAvailableTables()
@@ -276,15 +258,50 @@ namespace Buffet_Restaurant_API.Controllers
 
                 booking.Booking_Status = dto.Booking_Status;
 
-                if (dto.Booking_Status == "Cancelled")
+                var tableIds = booking.GroupTables
+                    .Where(gt => gt.Table_id.HasValue)
+                    .Select(gt => gt.Table_id!.Value).ToList();
+
+                var tables = await _context.Tables
+                    .Where(t => tableIds.Contains(t.Table_id)).ToListAsync();
+
+                if (dto.Booking_Status == "Confirmed")
                 {
-                    var tableIds = booking.GroupTables
-                        .Where(gt => gt.Table_id.HasValue)
-                        .Select(gt => gt.Table_id!.Value).ToList();
+                    //  ปรับโต๊ะเป็นติดจอง
+                    tables.ForEach(t => t.Table_Status = "ติดจอง");
 
-                    var tables = await _context.Tables
-                        .Where(t => tableIds.Contains(t.Table_id)).ToListAsync();
+                    //  เจน QR เช็คอิน
+                    var qrGenerator = new QRCodeGenerator();
+                    var qrData = qrGenerator.CreateQrCode(
+                    $"https://buffet-restaurant-management-system.vercel.app/Checkin?bookingId={id}&tableId={tableIds.FirstOrDefault()}", QRCodeGenerator.ECCLevel.Q);
+                    var qrCode = new PngByteQRCode(qrData);
+                    var qrBytes = qrCode.GetGraphic(10);
 
+                    using var ms = new MemoryStream(qrBytes);
+                    var uploadParams = new ImageUploadParams
+                    {
+                        File = new FileDescription($"qr_{id}.png", ms),
+                        Folder = "checkin_qr"
+                    };
+                    var uploadResult = await _cloudinary.UploadAsync(uploadParams);
+                    booking.QR_Url = uploadResult.SecureUrl.ToString();
+
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+
+                    //  แจ้ง SignalR เรียลไทม์
+                    foreach (var table in tables)
+                        await _hubContext.Clients.All
+                            .SendAsync("UpdateTable", new { tableId = table.Table_id, status = "ติดจอง" });
+
+                    return Ok(new
+                    {
+                        message = "Confirmed สำเร็จ",
+                        qr_url = booking.QR_Url
+                    });
+                }
+                else if (dto.Booking_Status == "Cancelled")
+                {
                     tables.ForEach(t => t.Table_Status = "ว่าง");
                     await _context.SaveChangesAsync();
                     await transaction.CommitAsync();
