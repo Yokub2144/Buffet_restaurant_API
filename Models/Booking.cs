@@ -9,11 +9,10 @@ namespace Buffet_Restaurant_API.Models
         [Key]
         public int Booking_id { get; set; }
         public int Member_id { get; set; }
-        public DateTime Booking_Date { get; set; }
         public string Booking_Status { get; set; } = "Pending";
         public int Adult_Count { get; set; } = 0;
         public int Child_Count { get; set; } = 0;
-        public TimeSpan? Booking_Time { get; set; }
+        public DateTime Booking_DateTime { get; set; }
         public string? QR_Url { get; set; }
         public decimal Deposit_Amount { get; set; } = 0;
 

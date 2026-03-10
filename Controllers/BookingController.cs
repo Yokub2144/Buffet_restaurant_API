@@ -50,13 +50,12 @@ namespace Buffet_Restaurant_API.Controllers
                 .Include(b => b.Member)
                 .Include(b => b.GroupTables).ThenInclude(gt => gt.Table)
                 .Where(b => b.Member_id == memberId)
-                .OrderByDescending(b => b.Booking_Date)
+                .OrderByDescending(b => b.Booking_DateTime)
                 .Select(b => new BookingResponseDto
                 {
                     Booking_id = b.Booking_id,
                     Member_Name = b.Member!.Fullname,
-                    Booking_Date = b.Booking_Date,
-                    Booking_Time = b.Booking_Time,
+                    Booking_DateTime = b.Booking_DateTime,
                     Booking_Status = b.Booking_Status,
                     Adult_Count = b.Adult_Count,
                     Child_Count = b.Child_Count,
@@ -82,8 +81,7 @@ namespace Buffet_Restaurant_API.Controllers
                 Booking_id = booking.Booking_id,
                 Member_Name = booking.Member?.Fullname ?? "",
                 Member_Phone = booking.Member?.Phone ?? "",
-                Booking_Date = booking.Booking_Date,
-                Booking_Time = booking.Booking_Time,
+                Booking_DateTime = booking.Booking_DateTime,
                 Booking_Status = booking.Booking_Status,
                 Adult_Count = booking.Adult_Count,
                 Child_Count = booking.Child_Count,
@@ -110,8 +108,7 @@ namespace Buffet_Restaurant_API.Controllers
             {
                 booking_id = booking.Booking_id,
                 booking_status = booking.Booking_Status,
-                booking_date = booking.Booking_Date,
-                booking_time = booking.Booking_Time,
+                booking_datetime = booking.Booking_DateTime,
                 adult_count = booking.Adult_Count,
                 child_count = booking.Child_Count,
                 member = new
@@ -154,8 +151,7 @@ namespace Buffet_Restaurant_API.Controllers
                 var booking = new Booking
                 {
                     Member_id = dto.Member_id,
-                    Booking_Date = dto.Booking_Date,
-                    Booking_Time = dto.Booking_Time,
+                    Booking_DateTime = dto.Booking_DateTime,
                     Adult_Count = dto.Adult_Count,
                     Child_Count = dto.Child_Count,
                     Booking_Status = "Pending",
@@ -341,7 +337,7 @@ namespace Buffet_Restaurant_API.Controllers
                 if (booking.Booking_Status == "Completed" || booking.Booking_Status == "Cancelled")
                     return BadRequest(new { message = $"ไม่สามารถแก้ไขได้เนื่องจากสถานะปัจจุบันคือ '{booking.Booking_Status}'" });
 
-                if (booking.Booking_Time != dto.Time)
+                if (booking.Booking_DateTime != dto.Booking_DateTime)
                 {
                     var currentTableIds = booking.GroupTables
                         .Where(gt => gt.Table_id.HasValue)
@@ -351,8 +347,7 @@ namespace Buffet_Restaurant_API.Controllers
                         .Include(b => b.GroupTables)
                         .AnyAsync(b =>
                             b.Booking_id != id &&
-                            b.Booking_Date.Date == booking.Booking_Date.Date &&
-                            b.Booking_Time == dto.Time &&
+                            b.Booking_DateTime == dto.Booking_DateTime &&
                             b.Booking_Status != "Cancelled" &&
                             b.GroupTables.Any(gt => gt.Table_id.HasValue && currentTableIds.Contains(gt.Table_id.Value))
                         );
@@ -360,7 +355,7 @@ namespace Buffet_Restaurant_API.Controllers
                     if (isTimeConflict)
                         return StatusCode(409, new { message = "เวลาใหม่ที่คุณเลือก มีคิวอื่นจองโต๊ะนี้ไปแล้ว" });
 
-                    booking.Booking_Time = dto.Time;
+                    booking.Booking_DateTime = dto.Booking_DateTime;
                 }
 
                 booking.Adult_Count = dto.AdultCount;
