@@ -1,31 +1,25 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Buffet_Restaurant_Managment_System_API\\Buffet_Restaurant_Managment_System_API.csproj": {}
+    "D:\\Buffet_restaurant_API\\Buffet_Restaurant_Managment_System_API.csproj": {}
   },
   "projects": {
-    "C:\\Buffet_Restaurant_Managment_System_API\\Buffet_Restaurant_Managment_System_API.csproj": {
+    "D:\\Buffet_restaurant_API\\Buffet_Restaurant_Managment_System_API.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Buffet_Restaurant_Managment_System_API\\Buffet_Restaurant_Managment_System_API.csproj",
+        "projectUniqueName": "D:\\Buffet_restaurant_API\\Buffet_Restaurant_Managment_System_API.csproj",
         "projectName": "Buffet_Restaurant_Managment_System_API",
-        "projectPath": "C:\\Buffet_Restaurant_Managment_System_API\\Buffet_Restaurant_Managment_System_API.csproj",
-        "packagesPath": "C:\\Users\\suwat\\.nuget\\packages\\",
-        "outputPath": "C:\\Buffet_Restaurant_Managment_System_API\\obj\\",
+        "projectPath": "D:\\Buffet_restaurant_API\\Buffet_Restaurant_Managment_System_API.csproj",
+        "packagesPath": "C:\\Users\\MSI\\.nuget\\packages\\",
+        "outputPath": "D:\\Buffet_restaurant_API\\obj\\",
         "projectStyle": "PackageReference",
-        "fallbackFolders": [
-          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-        ],
         "configFilePaths": [
-          "C:\\Users\\suwat\\AppData\\Roaming\\NuGet\\NuGet.Config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+          "C:\\Users\\MSI\\AppData\\Roaming\\NuGet\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net9.0"
         ],
         "sources": {
-          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -118,7 +112,11 @@
               "privateAssets": "all"
             }
           },
+<<<<<<< HEAD
           "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.312/PortableRuntimeIdentifierGraph.json"
+=======
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.304/PortableRuntimeIdentifierGraph.json"
+>>>>>>> 6945d637b23c8ae858a9cd83cfedef32e98b0514
         }
       }
     }

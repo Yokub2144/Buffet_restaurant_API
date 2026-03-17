@@ -45,10 +45,11 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             Console.WriteLine($"=== QR RESULT: {qrResult} ===");
             var parsed = JsonSerializer.Deserialize<JsonElement>(qrResult);
             var transactionId = parsed.GetProperty("data").GetProperty("transactionId").GetString();
+            var amount = parsed.GetProperty("data").GetProperty("amount").GetString();
             return Ok(new
             {
                 qr_data = qrResult,
-                amount = booking.Deposit_Amount,
+                amount_pay = amount,
                 booking_id = booking.Booking_id,
                 transaction_id = transactionId,
             });
