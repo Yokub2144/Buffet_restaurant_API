@@ -1,5 +1,5 @@
 using dotenv.net;
-using Microsoft.EntityFrameworkCore; 
+using Microsoft.EntityFrameworkCore;
 using Buffet_Restaurant_Managment_System_API.Data;
 using CloudinaryDotNet;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -13,9 +13,9 @@ var builder = WebApplication.CreateBuilder(args);
 var jwtKey = builder.Configuration["Jwt:Key"];
 if (string.IsNullOrEmpty(jwtKey))
 {
-    throw new InvalidOperationException("JWT Key is missing in appsettings.json");
+    Console.WriteLine("WARNING: JWT Key is missing!");
 }
-builder.Services.AddAuthentication(optiont => 
+builder.Services.AddAuthentication(optiont =>
 {
     optiont.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
     optiont.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -65,7 +65,7 @@ builder.Services.AddSwaggerGen(option =>
         Description = "Enter JWT Bearer token **_only_**",
         In = ParameterLocation.Header,
         Type = SecuritySchemeType.Http,
-        Scheme = "bearer", 
+        Scheme = "bearer",
         BearerFormat = "JWT",
         Reference = new OpenApiReference
         {
@@ -103,21 +103,22 @@ var connectionString = connectionTemplate?
 
 builder.Services.AddDbContext<restaurantDbContext>(options =>
     options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
-    
+
 builder.Services.AddHttpClient<PromptPayService>();
 builder.Services.AddMemoryCache();
 
 var app = builder.Build();
 app.UseCors("AllowAngular");
 
+app.UseSwagger();
+app.UseSwaggerUI();
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(); 
+
 }
-app.UseAuthentication(); 
+app.UseAuthentication();
 app.UseAuthorization();
-app.MapControllers(); 
+app.MapControllers();
 
 app.MapHub<tableStatusHub>("/tableStatusHub");
 
