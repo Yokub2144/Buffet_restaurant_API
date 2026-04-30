@@ -211,6 +211,23 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             }
 
         }
+        [HttpGet("getTableId")]
+        public async Task<IActionResult> GetTableID(string tableName)
+        {
+            try
+            {
+                var tableid = await _context.Tables.FirstOrDefaultAsync(t => t.Table_Number ==tableName);
+                  if (tableid == null)
+                {
+                    return NotFound(new { Message = "ไม่พบโต๊ะ" });
+                }
+                return Ok(tableid.Table_id);
+            }
+            catch(Exception ex)
+            {
+                return StatusCode(500, new { Message = "เกิดข้อผิดพลาดในการดึงข้อมูลโต๊ะ", Error = ex.Message });
+            }
+        }
         [Authorize(Roles = "เจ้าของร้าน")]
         [HttpDelete("deleteTable")]
         public async Task<IActionResult> DeleteTable(int tableId)
