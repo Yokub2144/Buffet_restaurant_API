@@ -5,6 +5,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Buffet_Restaurant_Managment_System_API.Hubs;
+using CloudinaryDotNet;
+using BUFFET_RESTAURANT_API.Models;
+using CloudinaryDotNet.Actions;
 namespace Buffet_Restaurant_Managment_System_API.Controllers
 {
     [Route("api/[controller]")]
@@ -12,6 +15,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
     public class ResConfigController : ControllerBase
     {
         private readonly restaurantDbContext _context;
+        private readonly Cloudinary _cloudinary;
 
         public ResConfigController(restaurantDbContext context, IHubContext<tableStatusHub> hubContext)
         {
@@ -62,5 +66,6 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 return StatusCode(500, new { Message = "เกิดข้อผิดพลาดในการอัปเดต", Error = ex.Message });
             }
         }
+
     }
 }

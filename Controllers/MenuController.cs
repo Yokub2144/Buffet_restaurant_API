@@ -136,17 +136,6 @@ namespace Buffet_Restaurant_API.Controllers
                 return StatusCode(500, new { message = $"เกิดข้อผิดพลาดจาก Backend: {errorMessage}" });
             }
         }
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteMenu(int id)
-        {
-            var menu = await _context.Menus.FindAsync(id);
-            if (menu == null) return NotFound(new { message = "ไม่พบเมนูที่ต้องการลบ" });
-
-            _context.Menus.Remove(menu);
-            await _context.SaveChangesAsync();
-
-            return Ok(new { message = "ลบเมนูเรียบร้อยแล้ว" });
-        }
 
         private bool MenuExists(int id)
         {
