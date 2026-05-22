@@ -1,7 +1,10 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace Buffet_Restaurant_API.Models
 {
     public class Bill
     {
+        [Key]
         public int Bill_id {get;set;}
         public int Booking_id {get;set;}
         public int Config_id {get;set;}
