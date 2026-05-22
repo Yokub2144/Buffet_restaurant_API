@@ -1,0 +1,26 @@
+namespace Buffet_Restaurant_API.Dtos
+{
+    public class CreateWalkInBillDto
+    {
+        public int Config_id { get; set; }
+        public int GroupTable_id { get; set; }
+        public int Emp_id { get; set; }
+        public int NumAdults { get; set; }
+        public int NumChildren { get; set; }
+        public int Discount_id { get; set; } // เพิ่มเข้ามาตอนเปิดบิล Walk-in
+    }
+
+    public class CreateBookingBillDto
+    {
+        public int Config_id { get; set; }
+        public int Emp_id { get; set; }
+        public int Discount_id { get; set; } // เพิ่มเข้ามาตอนยืนยันลูกค้าจองหน้าร้าน
+    }
+
+    public class CloseBillDto
+    {
+        public decimal Fine_kg { get; set; }
+        public decimal Total_amount { get; set; }
+        public string PaymentMethod { get; set; } = null!;
+    }
+}
