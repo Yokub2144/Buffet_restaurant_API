@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Buffet_Restaurant_Managment_System_API.Models;
 using Buffet_Restaurant_API.Models;
+using BUFFET_RESTAURANT_API.Models;
 namespace Buffet_Restaurant_Managment_System_API.Data
 {
     public class restaurantDbContext : DbContext
@@ -59,5 +60,6 @@ namespace Buffet_Restaurant_Managment_System_API.Data
         public DbSet<Orders> Orders {get; set;}
         public DbSet<Ordere_detail> Order_detail {get; set;}
         public DbSet<Bill> Bill {get; set;}
+        public DbSet<ResImage> Res_Image { get; set; }
     }
 }
