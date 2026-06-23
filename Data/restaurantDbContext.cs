@@ -61,5 +61,6 @@ namespace Buffet_Restaurant_Managment_System_API.Data
         public DbSet<Ordere_detail> Order_detail {get; set;}
         public DbSet<Bill> Bill {get; set;}
         public DbSet<ResImage> Res_Image { get; set; }
+        public DbSet<Discount> Discounts { get; set; }
     }
 }
