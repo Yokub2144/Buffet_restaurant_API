@@ -63,6 +63,7 @@ Controllers/
  OrderController.cs
  PaymentController.cs
  ResconfigController.cs
+ ResImageController.cs
  TestDbControllers.cs
 Data/restaurantDbContext.cs
 Dtos/
@@ -75,6 +76,7 @@ Dtos/
  MenuDtos.cs
  registerMemberDtos.cs
  resgisterEmployeeDtos.cs
+ ResImageDto.cs
  tableDtos.cs
  UpdateCartItemDtos.cs
  UpdateDepartmentEmpReq.cs

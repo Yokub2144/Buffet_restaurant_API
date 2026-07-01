@@ -6,13 +6,12 @@ namespace Buffet_Restaurant_API.Models
     {
         [Key]
         public int Bill_id {get;set;}
-        public int Booking_id {get;set;}
+        public int? Booking_id {get;set;}
         public int Config_id {get;set;}
-        public int GroupTable_id {get;set;}
         public int Emp_id {get;set;}
-        public int Discount_id {get;set;}
+        public int? Discount_id {get;set;}
         public DateTime Created_at {get; set;}
-        public DateTime Closed_at {get; set;}
+        public DateTime? Closed_at {get; set;}
         public int NumAdults {get; set;}
         public int NumChildren {get; set;}
         public decimal Fine_kg {get; set;}

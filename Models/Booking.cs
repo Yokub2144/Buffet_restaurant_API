@@ -25,6 +25,7 @@ namespace Buffet_Restaurant_API.Models
     {
         [Key]
         public int GroupTable_id { get; set; }
+        public int? Bill_id { get; set; }
         public int? Booking_id { get; set; }
         public int? Table_id { get; set; }
 

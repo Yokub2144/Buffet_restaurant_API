@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.SignalR;
 using Buffet_Restaurant_Managment_System_API.Hubs;
 using System.Reflection.Metadata.Ecma335;
 using MimeKit.Encodings;
+using Buffet_Restaurant_API.Models;
 namespace Buffet_Restaurant_Managment_System_API.Controllers
 {
     [ApiController]
@@ -216,14 +217,14 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
         {
             try
             {
-                var tableid = await _context.Tables.FirstOrDefaultAsync(t => t.Table_Number ==tableName);
-                  if (tableid == null)
+                var tableid = await _context.Tables.FirstOrDefaultAsync(t => t.Table_Number == tableName);
+                if (tableid == null)
                 {
                     return NotFound(new { Message = "ไม่พบโต๊ะ" });
                 }
                 return Ok(tableid.Table_id);
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 return StatusCode(500, new { Message = "เกิดข้อผิดพลาดในการดึงข้อมูลโต๊ะ", Error = ex.Message });
             }
@@ -290,6 +291,120 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, new { Message = "เกิดข้อผิดพลาดในการอัปเดตสถานะโต๊ะ", Error = ex.Message });
+            }
+        }
+        [HttpGet("by-bill/{billId}")] // เปลี่ยนชื่อ Endpoint ให้เหมาะสม
+        public async Task<IActionResult> GetTableByBillId(int billId)
+        {
+            // 🎯 ค้นหาใน GroupTables ทุกแถวที่มี Bill_id ตรงกับที่หน้าบ้านส่งมา
+            var tables = await _context.GroupTables
+                .Where(gt => gt.Bill_id == billId)
+                .Join(_context.Tables,
+                    gt => gt.Table_id,
+                    t => t.Table_id,
+                    (gt, t) => new
+                    {
+                        t.Table_id,
+                        t.Table_Number,
+                        t.Table_Status
+                    })
+                .ToListAsync();
+
+            if (!tables.Any())
+            {
+                return NotFound(new { message = "ไม่พบข้อมูลโต๊ะสำหรับบิลนี้" });
+            }
+
+            return Ok(tables);
+        }
+
+        [HttpPut("change-table/{billId}")]
+        public async Task<IActionResult> ChangeTable(int billId, [FromBody] ChangeTableDto dto)
+        {
+            if (dto == null || !dto.Table_ids.Any())
+            {
+                return BadRequest(new { message = "กรุณาระบุเลขโต๊ะใหม่อย่างน้อย 1 โต๊ะ" });
+            }
+
+            // เริ่มต้น Transaction ป้องกันข้อมูลอัปเดตครึ่งๆ กลางๆ
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                // เช็คว่าบิลนี้มีตัวตนอยู่จริงไหม
+                var bill = await _context.Bill.FirstOrDefaultAsync(b => b.Bill_id == billId);
+                if (bill == null)
+                {
+                    return NotFound(new { message = "ไม่พบรหัสบิลที่ระบุ" });
+                }
+
+                // เคลียร์โต๊ะเก่ากลับเป็น "ว่าง"
+                // ดึงกลุ่มโต๊ะเดิมทั้งหมดของบิลนี้ออกมา
+                var oldGroupTables = await _context.GroupTables
+                    .Where(gt => gt.Bill_id == billId)
+                    .ToListAsync();
+
+                if (oldGroupTables.Any())
+                {
+                    var oldTableIds = oldGroupTables.Select(gt => gt.Table_id).ToList();
+                    // ค้นหาโต๊ะเหล่านั้นในตาราง Tables
+                    var oldTables = await _context.Tables
+                        .Where(t => oldTableIds.Contains(t.Table_id))
+                        .ToListAsync();
+                    // ปรับสถานะโต๊ะเก่าคืนเป็น "ว่าง"
+                    foreach (var table in oldTables)
+                    {
+                        table.Table_Status = "ว่าง";
+                        await _hubContext.Clients.All.SendAsync("UpdateTable", new
+                        {
+                            tableId = table.Table_id,
+                            status = "ว่าง"
+                        });
+                    }
+                    // ลบความสัมพันธ์เดิมใน GroupTables ออกทั้งหมด
+                    _context.GroupTables.RemoveRange(oldGroupTables);
+                }
+
+                //อัปเดตโต๊ะใหม่เป็น ไม่ว่าง และบันทึกเข้ากลุ่ม
+                var newTables = await _context.Tables
+                    .Where(t => dto.Table_ids.Contains(t.Table_id))
+                    .ToListAsync();
+
+                //เช็คว่าโต๊ะใหม่ที่เลือกมา มีโต๊ะไหนแอบโดนคนอื่นตัดหน้าเปิดไปก่อนไหม (ยกเว้นโต๊ะเดิมของตัวเอง)
+                var oldTableIdsSet = oldGroupTables.Select(gt => gt.Table_id).ToHashSet();
+                foreach (var table in newTables)
+                {
+                    if (table.Table_Status != "ว่าง" && !oldTableIdsSet.Contains(table.Table_id))
+                    {
+                        return BadRequest(new { message = $"โต๊ะ {table.Table_Number} ไม่ว่างในระบบแล้ว กรุณาเลือกใหม่อีกครั้ง" });
+                    }
+
+                    //เปลี่ยนสถานะโต๊ะใหม่ให้เป็น ไม่ว่าง
+                    table.Table_Status = "ไม่ว่าง";
+                    // ส่งข้อมูลโต๊ะที่อัปเดตไปยัง SignalR
+                    await _hubContext.Clients.All.SendAsync("UpdateTable", new
+                    {
+                        tableId = table.Table_id,
+                        status = "ไม่ว่าง"
+                    });
+
+                    //เพิ่มแถวใหม่ลงตารางความสัมพันธ์ GroupTables
+                    var newGroup = new GroupTable // เปลี่ยนชื่อตาม Entity ของคุณ
+                    {
+                        Bill_id = billId,
+                        Table_id = table.Table_id
+                    };
+                    _context.GroupTables.Add(newGroup);
+                }
+            
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+                return Ok(new { message = "เปลี่ยนโต๊ะและอัปเดตสถานะสำเร็จ!" });
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในระบบ", error = ex.Message });
             }
         }
 
