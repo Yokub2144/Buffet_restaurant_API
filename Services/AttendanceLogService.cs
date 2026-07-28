@@ -11,7 +11,7 @@ namespace Buffet_Restaurant_Managment_System_API.Services
         private static readonly string _filePath = "attendance_logs.json";
         private static readonly object _fileLock = new object();
 
-        // 1. อัปเดตโครงสร้างข้อมูลให้รองรับเวลาออกงาน
+        //  อัปเดตโครงสร้างข้อมูลให้รองรับเวลาออกงาน
         public class AttendanceRecord
         {
             public int EmployeeId { get; set; }
@@ -20,7 +20,7 @@ namespace Buffet_Restaurant_Managment_System_API.Services
             public DateTime? ClockOutTime { get; set; } // เพิ่ม DateTime? (ใส่ ? เพื่อให้เป็น null ได้ตอนที่เพิ่งเข้างาน)
         }
 
-        // 2. ฟังก์ชันลงเวลาเข้างาน (ของเดิม)
+        //  ฟังก์ชันลงเวลาเข้างาน (ของเดิม)
         public static void SaveLog(int empId, string empName, DateTime time)
         {
             lock (_fileLock)
@@ -39,7 +39,7 @@ namespace Buffet_Restaurant_Managment_System_API.Services
             }
         }
 
-        // 3. (เพิ่มใหม่) ฟังก์ชันลงเวลาออกงาน
+        // ฟังก์ชันลงเวลาออกงาน
         public static bool ClockOutLog(int empId, DateTime time)
         {
             lock (_fileLock)
@@ -59,7 +59,7 @@ namespace Buffet_Restaurant_Managment_System_API.Services
             }
         }
 
-        // 4. (เพิ่มใหม่) ฟังก์ชันสำหรับดึงข้อมูลประวัติทั้งหมดไปแสดงผล
+        //  ฟังก์ชันสำหรับดึงข้อมูลประวัติทั้งหมดไปแสดงผล
         public static List<AttendanceRecord> GetAllLogs()
         {
             lock (_fileLock)
