@@ -12,6 +12,7 @@ namespace Buffet_Restaurant_Managment_System_API.Data
         public DbSet<Member> Members { get; set; }
         public DbSet<Employee> Employee { get; set; }
         public DbSet<Tables> Tables { get; set; }
+        public DbSet<TimeLog> TimeLog { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<Employee>()
