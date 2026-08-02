@@ -51,6 +51,19 @@ namespace Buffet_Restaurant_Managment_System_API.Data
                  .HasForeignKey(x => x.Table_id);
             });
 
+            modelBuilder.Entity<Payment>(entity =>
+            {
+                entity.HasOne(p => p.Booking)
+                    .WithMany()
+                    .HasForeignKey(p => p.Booking_id)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(p => p.Bill)
+                    .WithMany()
+                    .HasForeignKey(p => p.Bill_id)
+                    .OnDelete(DeleteBehavior.SetNull);
+            });
+
         }
         public DbSet<Cart> Carts { get; set; }
         public DbSet<Cart_item> CartItems { get; set; }
@@ -58,10 +71,11 @@ namespace Buffet_Restaurant_Managment_System_API.Data
         public DbSet<Booking> Bookings { get; set; }
         public DbSet<GroupTable> GroupTables { get; set; }
         public DbSet<Resconfig> Res_Config { get; set; }
-        public DbSet<Orders> Orders {get; set;}
-        public DbSet<Order_detail> Order_detail {get; set;}
-        public DbSet<Bill> Bill {get; set;}
+        public DbSet<Orders> Orders { get; set; }
+        public DbSet<Order_detail> Order_detail { get; set; }
+        public DbSet<Bill> Bill { get; set; }
         public DbSet<ResImage> Res_Image { get; set; }
         public DbSet<Discount> Discounts { get; set; }
+        public DbSet<Payment> Payment { get; set; }
     }
 }
