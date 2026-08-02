@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Buffet_Restaurant_API.Models
 {
@@ -10,5 +11,8 @@ namespace Buffet_Restaurant_API.Models
         public string? Order_type {get; set;}
         public DateTime OrderDateTime {get; set;}
         public string? Order_Status {get; set;}
+
+        [ForeignKey("Bill_id")]
+        public virtual Bill Bill { get; set; }
     }
 }

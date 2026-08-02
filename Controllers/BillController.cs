@@ -2,6 +2,7 @@ using Buffet_Restaurant_API.Dtos;
 using Buffet_Restaurant_API.Models;
 using Buffet_Restaurant_Managment_System_API.Data;
 using Buffet_Restaurant_Managment_System_API.Hubs;
+using Buffet_Restaurant_Managment_System_API.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -83,7 +84,7 @@ namespace Buffet_Restaurant_API.Controllers
                         tableId = table.Table_id,
                         status = "ไม่ว่าง"
                     });
-                    }
+                }
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
@@ -102,7 +103,7 @@ namespace Buffet_Restaurant_API.Controllers
             }
         }
 
-        [HttpPost("booking/{bookingId}")]
+        [HttpPost("CreateBillFromBooking/{bookingId}")]
         public async Task<IActionResult> CreateBillFromBooking(int bookingId, [FromBody] CreateBookingBillDto dto)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
@@ -159,31 +160,69 @@ namespace Buffet_Restaurant_API.Controllers
             }
         }
 
-        [HttpPut("{billId}/close")]
-        public async Task<IActionResult> CloseBill(int billId, [FromBody] CloseBillDto dto) // แก้ชื่อตัวแปรพารามิเตอร์ให้ตรงกับ Route {billId}
+        [HttpPut("close/{billId}")]
+        public async Task<IActionResult> CloseBill(int billId, [FromBody] CloseBillDto dto)
         {
+            using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                var bill = await _context.Bill.FindAsync(billId);
+                // 1. ค้นหา Bill พร้อม Include โต๊ะที่เกี่ยวข้อง (ดึง GroupTables จาก Booking ที่ผูกกับ Bill)
+                var bill = await _context.Bill
+                    .FirstOrDefaultAsync(b => b.Bill_id == billId);
+
                 if (bill == null)
                 {
                     return NotFound(new { message = "ไม่พบข้อมูลบิลที่ต้องการปิด" });
                 }
 
+                // 2. ค้นหาโต๊ะทั้งหมดที่ผูกกับ บิล/การจอง นี้
+                var booking = await _context.Bookings
+                    .Include(b => b.GroupTables)
+                    .FirstOrDefaultAsync(b => b.Booking_id == bill.Booking_id); // ปรับชื่อ FK ตาม Model จริงของคุณ เช่น bill.Booking_id
+
+                List<Tables> allTables = new List<Tables>();
+
+                if (booking != null && booking.GroupTables != null)
+                {
+                    var allTableIds = booking.GroupTables
+                        .Where(gt => gt.Table_id.HasValue)
+                        .Select(gt => gt.Table_id!.Value)
+                        .ToList();
+
+                    allTables = await _context.Tables
+                        .Where(t => allTableIds.Contains(t.Table_id))
+                        .ToListAsync();
+
+                    // 🟢 เปลี่ยนสถานะโต๊ะทั้งหมดเป็น "ว่าง"
+                    allTables.ForEach(t => t.Table_Status = "ว่าง");
+                }
+
+                // 3. อัปเดตข้อมูลการปิดบิล
                 bill.Closed_at = DateTime.Now;
                 bill.Fine_kg = dto.Fine_kg;
+                bill.Discount_id = dto.Discount_id; // หากใน CloseBillDto มีการส่งส่วนลดมาด้วย
                 bill.Total_amount = dto.Total_amount;
                 bill.PaymentMethod = dto.PaymentMethod;
 
+                // 4. บันทึกข้อมูลและ Commit Transaction
                 await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                // 🟢 5. แจ้งเตือน Real-time ผ่าน SignalR ให้หน้าบ้านเปลี่ยนสี/สถานะโต๊ะเป็น "ว่าง"
+                foreach (var table in allTables)
+                {
+                    await _hubContext.Clients.All
+                        .SendAsync("UpdateTable", new { tableId = table.Table_id, status = "ว่าง" });
+                }
+
                 return Ok(new { message = "เช็คบิลและปิดโต๊ะเรียบร้อยแล้ว" });
             }
             catch (Exception ex)
             {
+                await transaction.RollbackAsync();
                 return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการปิดบิล", error = ex.Message });
             }
         }
-
         [HttpGet("getBill")]
         public async Task<IActionResult> getBill()
         {
@@ -269,7 +308,6 @@ namespace Buffet_Restaurant_API.Controllers
 
                 foreach (var tableObj in updatedTablesForSignalR)
                 {
-                    // 💡 ใช้ชื่อ Event เดียวกันกับตัวอัปเดตปกติของคุณคือ "UpdateTable"
                     await _hubContext.Clients.All.SendAsync("UpdateTable", tableObj);
                 }
 
@@ -279,6 +317,51 @@ namespace Buffet_Restaurant_API.Controllers
             {
                 await transaction.RollbackAsync();
                 return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการลบบิล", error = ex.Message });
+            }
+        }
+        [HttpGet("getBillById/{billId}")]
+        public async Task<IActionResult> GetBillById(int billId)
+        {
+            var bill = await _context.Bill
+                .Where(b => b.Bill_id == billId)
+                .FirstOrDefaultAsync();
+
+            if (bill == null)
+            {
+                return NotFound(new { message = "ไม่พบข้อมูลบิลที่ต้องการ" });
+            }
+
+            return Ok(bill);
+        }
+        [HttpGet("active-by-table/{tableId}")]
+        public async Task<IActionResult> GetActiveBillByTableId(int tableId)
+        {
+            try
+            {
+                var activeBill = await _context.GroupTables
+                    .Where(gt => gt.Table_id == tableId && gt.Bill.Closed_at == null)
+                    .OrderByDescending(gt => gt.Bill.Created_at) // ดึงบิลล่าสุด
+                    .Select(gt => new
+                    {
+                        Bill_id = gt.Bill_id,
+                        Booking_id = gt.Booking_id,
+                        Table_id = gt.Table_id,
+                        Created_at = gt.Bill.Created_at,
+                        Config_id = gt.Bill.Config_id,
+                        Emp_id = gt.Bill.Emp_id
+                    })
+                    .FirstOrDefaultAsync();
+
+                if (activeBill == null)
+                {
+                    return NotFound(new { message = $"ไม่พบรายการบิลที่กำลังเปิดใช้งานอยู่สำหรับโต๊ะ {tableId}" });
+                }
+
+                return Ok(activeBill);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการดึงข้อมูลบิล", error = ex.Message });
             }
         }
     }

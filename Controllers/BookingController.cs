@@ -195,48 +195,83 @@ namespace Buffet_Restaurant_API.Controllers
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
+                // 1. ค้นหาข้อมูลการจองพร้อม GroupTables
                 var booking = await _context.Bookings
                     .Include(b => b.GroupTables)
                     .FirstOrDefaultAsync(b => b.Booking_id == dto.BookingId);
 
                 if (booking == null)
-                    return NotFound(new { message = "ไม่พบการจอง" });
+                    return NotFound(new { message = "ไม่พบข้อมูลการจองนี้ในระบบ" });
+
                 if (booking.Booking_Status != "Confirmed")
-                    return BadRequest(new { message = $"ไม่สามารถเช็คอินได้ สถานะคือ '{booking.Booking_Status}'" });
+                    return BadRequest(new { message = $"ไม่สามารถเช็คอินได้ สถานะการจองคือ '{booking.Booking_Status}'" });
 
-                var hasTable = booking.GroupTables.Any(gt => gt.Table_id == dto.TableId);
-                if (!hasTable)
-                    return BadRequest(new { message = "โต๊ะนี้ไม่ได้อยู่ในการจองนี้" });
-
+                // 🎯 2. ดึง Table_id ทั้งหมดจาก GroupTables ของ Booking นี้
                 var allTableIds = booking.GroupTables
                     .Where(gt => gt.Table_id.HasValue)
-                    .Select(gt => gt.Table_id!.Value).ToList();
+                    .Select(gt => gt.Table_id!.Value)
+                    .ToList();
 
+                if (!allTableIds.Any())
+                    return BadRequest(new { message = "ไม่พบข้อมูลโต๊ะที่ผูกกับการจองนี้" });
+
+                // 3. เปลี่ยนสถานะโต๊ะทั้งหมดเป็น "ไม่ว่าง"
                 var allTables = await _context.Tables
-                    .Where(t => allTableIds.Contains(t.Table_id)).ToListAsync();
+                    .Where(t => allTableIds.Contains(t.Table_id))
+                    .ToListAsync();
 
                 allTables.ForEach(t => t.Table_Status = "ไม่ว่าง");
+
+                // 4. สร้างบิลจากการจอง
+                var autoBill = new Bill
+                {
+                    Booking_id = booking.Booking_id,
+                    Config_id = dto.Config_id ?? 1,
+                    Emp_id = dto.Emp_id ?? 1,
+                    Discount_id = dto.Discount_id,
+                    Created_at = DateTime.Now,
+                    NumAdults = booking.Adult_Count,
+                    NumChildren = booking.Child_Count,
+                    Fine_kg = 0,
+                    Total_amount = booking.Deposit_Amount,
+                    PaymentMethod = null
+                };
+
+                _context.Bill.Add(autoBill);
+                await _context.SaveChangesAsync(); // บันทึกเพื่อให้ได้ autoBill.Bill_id
+
+                // 🎯 5. หยอด Bill_id ใส่ใน GroupTables ทุกแถวของการจองนี้
+                foreach (var gt in booking.GroupTables)
+                {
+                    gt.Bill_id = autoBill.Bill_id;
+                }
+
+                // 6. อัปเดตสถานะการจองเป็น Completed
                 booking.Booking_Status = "Completed";
 
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
+                // 7. แจ้งเตือน Real-time ผ่าน SignalR
                 foreach (var table in allTables)
+                {
                     await _hubContext.Clients.All
                         .SendAsync("UpdateTable", new { tableId = table.Table_id, status = "ไม่ว่าง" });
+                }
 
                 return Ok(new
                 {
-                    message = "เช็คอินสำเร็จ",
+                    message = "เช็คอินและสร้างบิลจากการจองสำเร็จ",
                     booking_id = dto.BookingId,
-                    booking_status = "Completed",
+                    bill_id = autoBill.Bill_id,
+                    booking_status = booking.Booking_Status,
                     tables_checked_in = allTables.Select(t => t.Table_Number).ToList()
                 });
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return StatusCode(500, new { message = ex.Message });
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการเช็คอิน", error = ex.Message });
             }
         }
 

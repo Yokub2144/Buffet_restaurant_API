@@ -22,6 +22,7 @@ namespace Buffet_Restaurant_API.Dtos
         public decimal Fine_kg { get; set; }
         public decimal Total_amount { get; set; }
         public string PaymentMethod { get; set; } = null!;
+        public int? Discount_id { get; set; } // เพิ่มเข้ามาตอนปิดบิล
     }
     public class UpdateBillDto
     {

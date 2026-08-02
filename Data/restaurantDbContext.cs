@@ -58,7 +58,7 @@ namespace Buffet_Restaurant_Managment_System_API.Data
         public DbSet<GroupTable> GroupTables { get; set; }
         public DbSet<Resconfig> Res_Config { get; set; }
         public DbSet<Orders> Orders {get; set;}
-        public DbSet<Ordere_detail> Order_detail {get; set;}
+        public DbSet<Order_detail> Order_detail {get; set;}
         public DbSet<Bill> Bill {get; set;}
         public DbSet<ResImage> Res_Image { get; set; }
         public DbSet<Discount> Discounts { get; set; }

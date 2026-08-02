@@ -32,5 +32,8 @@ namespace Buffet_Restaurant_API.Models
 
         public Booking? Booking { get; set; }
         public Tables? Table { get; set; }
+
+        [ForeignKey("Bill_id")]  
+        public virtual Bill Bill { get; set; } = null!;
     }
 }

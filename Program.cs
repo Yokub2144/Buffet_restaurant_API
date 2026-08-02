@@ -39,7 +39,9 @@ builder.Services.AddCors(options =>
         policy.WithOrigins(
                 "http://localhost:4200",
                 "https://localhost:4200",
-                "https://buffet-restaurant-management-system.vercel.app"
+                "https://buffet-restaurant-management-system.vercel.app",
+                "https://buffet-restaurant-management-system-596epjhvb.vercel.app",
+                "http://localhost:3000"
 
             )
             .AllowAnyMethod()

@@ -49,7 +49,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 var config = await _context.Res_Config.FirstOrDefaultAsync(c => c.Config_id == req.Config_id);
 
                 if (config == null) return NotFound("ไม่พบข้อมูลการตั้งค่า");
-
+                
                 // อัปเดตค่า
                 config.Res_name = req.Res_name ?? config.Res_name;
                 config.Res_phone = req.Res_phone ?? config.Res_phone;

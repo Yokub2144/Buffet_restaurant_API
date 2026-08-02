@@ -31,6 +31,9 @@ namespace Buffet_Restaurant_API.Dtos
     {
         public int BookingId { get; set; }
         public int TableId { get; set; }
+        public int? Config_id { get; set; }   
+        public int? Emp_id { get; set; }      
+        public int? Discount_id { get; set; }  
     }
     public class UpdateBookingDto
     {

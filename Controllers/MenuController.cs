@@ -95,12 +95,11 @@ namespace Buffet_Restaurant_API.Controllers
             {
                 var menu = await _context.Menus.FindAsync(id);
                 if (menu == null) return NotFound(new { message = "ไม่พบเมนูที่ต้องการแก้ไข" });
-
                 menu.Menu_Name = request.Menu_Name;
                 menu.Price = request.Price;
                 menu.Category = request.Category;
                 menu.Menu_Type = request.Menu_Type;
-
+                
                 if (request.ImageFile != null && request.ImageFile.Length > 0)
                 {
                     var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp" };
