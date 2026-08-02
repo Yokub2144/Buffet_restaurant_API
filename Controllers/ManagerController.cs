@@ -396,7 +396,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                     };
                     _context.GroupTables.Add(newGroup);
                 }
-            
+
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
                 return Ok(new { message = "เปลี่ยนโต๊ะและอัปเดตสถานะสำเร็จ!" });

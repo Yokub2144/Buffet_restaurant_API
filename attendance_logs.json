@@ -4,5 +4,17 @@
     "EmployeeName": "suwat",
     "ClockInTime": "2026-07-27T02:59:17.4694302+07:00",
     "ClockOutTime": "2026-07-27T03:05:13.0736117+07:00"
+  },
+  {
+    "EmployeeId": 240001,
+    "EmployeeName": "aof",
+    "ClockInTime": "2026-07-29T01:20:30.1947108+07:00",
+    "ClockOutTime": "2026-07-29T01:20:39.1022753+07:00"
+  },
+  {
+    "EmployeeId": 240001,
+    "EmployeeName": "aof",
+    "ClockInTime": "2026-08-02T10:08:36.6208468+07:00",
+    "ClockOutTime": "2026-08-02T10:08:39.2097212+07:00"
   }
 ]
