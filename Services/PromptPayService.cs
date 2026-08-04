@@ -17,6 +17,7 @@ namespace Buffet_Restaurant_Managment_System_API.Services
 
         public async Task<string> GeneratePromptPayQr(decimal amount)
         {
+            try{
             Console.WriteLine($"=== API KEY VALUE: [{_apiKey}] ===");
 
             var url = "https://api.inwcloud.shop/v1/promptpay/generate";
@@ -36,6 +37,11 @@ namespace Buffet_Restaurant_Managment_System_API.Services
             }
 
             return $"Error: {response.StatusCode}";
+            }catch(Exception ex){
+                Console.WriteLine($"Error generating PromptPay QR: {ex.Message}");
+                return $"Error: {ex.Message}";
+            }
+
         }
         public async Task<string> CheckPaymentStatus(string transactionId)
         {

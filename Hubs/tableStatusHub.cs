@@ -14,5 +14,16 @@ namespace Buffet_Restaurant_Managment_System_API.Hubs
         {
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, "TableRoom");
         }
+        // 🟢 บรอดแคสต์ข้อมูลรายการคิดเงิน/QR ไปยัง Customer Display
+        public async Task SendToCustomerDisplay(object data)
+        {
+            await Clients.All.SendAsync("ShowCustomerDisplay", data);
+        }
+
+        // 🟢 บรอดแคสต์คำสั่งล้างหน้าจอให้กลับเป็น Index
+        public async Task ClearCustomerDisplay()
+        {
+            await Clients.All.SendAsync("ClearCustomerDisplay");
+        }
     }
 }

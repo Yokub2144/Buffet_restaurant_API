@@ -36,7 +36,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
         [HttpPost("generate-qr")]
         public async Task<IActionResult> CreateQr([FromBody] QrRequestDto request)
         {
-        
+
             var booking = await _context.Bookings
                 .FirstOrDefaultAsync(b => b.Booking_id == request.BookingId);
 
@@ -69,106 +69,207 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             return Ok(result);
         }
 
-
         [HttpPost("generate-checkout-qr")]
-    public async Task<IActionResult> CreateCheckoutQr([FromBody] CheckoutQrRequestDto request)
-    {
-        
-        var bill = await _context.Bill
-            .FirstOrDefaultAsync(b => b.Bill_id == request.BillId);
-
-        if (bill == null)
+        public async Task<IActionResult> CreateCheckoutQr([FromBody] CheckoutQrRequestDto request)
         {
-            return NotFound(new { message = "ไม่พบข้อมูลบิลที่ต้องการชำระเงิน" });
+            var bill = await _context.Bill
+                .FirstOrDefaultAsync(b => b.Bill_id == request.BillId);
+
+            if (bill == null)
+            {
+                return NotFound(new { message = "ไม่พบข้อมูลบิลที่ต้องการชำระเงิน" });
+            }
+
+            decimal amountToPay = request.TotalAmount > 0 ? request.TotalAmount : bill.Total_amount;
+
+            if (amountToPay <= 0)
+            {
+                return BadRequest(new { message = "ยอดเงินที่ต้องชำระต้องมากกว่า 0 บาท" });
+            }
+
+            // 🟢 1. เรียกใช้งาน Service
+            var qrResult = await _promptPayService.GeneratePromptPayQr(amountToPay);
+            Console.WriteLine($"=== CHECKOUT QR RESULT: {qrResult} ===");
+
+            // 🟢 2. ถ้าผลลัพธ์ขึ้นต้นด้วย Error (เช่น Error: Unauthorized) ให้ดักไว้ตรงนี้ทันที!
+            if (string.IsNullOrWhiteSpace(qrResult) || qrResult.StartsWith("Error"))
+            {
+                return BadRequest(new
+                {
+                    message = "สร้าง QR Code ไม่สำเร็จ (ติดปัญหาการยืนยันตัวตนกับระบบชำระเงิน)",
+                    detail = qrResult
+                });
+            }
+
+            try
+            {
+                // 🟢 3. อ่านค่า JSON เมื่อมั่นใจว่าเป็น JSON จริงๆ
+                var parsed = JsonSerializer.Deserialize<JsonElement>(qrResult);
+                var dataProp = parsed.GetProperty("data");
+
+                var transactionId = dataProp.GetProperty("transactionId").GetString();
+
+                var amountProp = dataProp.GetProperty("amount");
+                string amountStr = amountProp.ValueKind == JsonValueKind.Number
+                    ? amountProp.GetDecimal().ToString("F2")
+                    : amountProp.GetString();
+
+                return Ok(new
+                {
+                    qr_data = qrResult,
+                    amount_pay = amountStr,
+                    bill_id = bill.Bill_id,
+                    booking_id = bill.Booking_id,
+                    transaction_id = transactionId
+                });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = "อ่านข้อมูล QR Code ไม่สำเร็จ", detail = ex.Message, rawData = qrResult });
+            }
         }
 
-        decimal amountToPay = request.TotalAmount > 0 ? request.TotalAmount : bill.Total_amount;
-
-        if (amountToPay <= 0)
+        [HttpPost("verify-payment")]
+        public async Task<IActionResult> VerifyPayment([FromBody] VerifyPaymentRequestDto request)
         {
-            return BadRequest(new { message = "ยอดเงินที่ต้องชำระต้องมากกว่า 0 บาท" });
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                var bill = await _context.Bill
+                    .FirstOrDefaultAsync(b => b.Bill_id == request.BillId);
+
+                if (bill == null)
+                {
+                    return NotFound(new { message = "ไม่พบข้อมูลบิล" });
+                }
+
+                // 🟢 1. ตรวจสอบสถานะชำระเงินจาก PromptPay / Bank Gateway API
+                var result = await _promptPayService.CheckPaymentStatus(request.TransactionId);
+
+                bool isPaid = false;
+
+                try
+                {
+                    // แปลงผลลัพธ์จาก String เป็น JSON Object
+                    var parsed = JsonSerializer.Deserialize<JsonElement>(result);
+
+                    // ดึงค่า status ออกมา (เช่น "success")
+                    if (parsed.TryGetProperty("status", out var statusProp))
+                    {
+                        var statusValue = statusProp.GetString()?.Trim().ToLower();
+                        if (statusValue == "success")
+                        {
+                            isPaid = true;
+                        }
+                    }
+                }
+                catch
+                {
+                    // กรณีฉุกเฉิน เผื่อวันนึง Gateway เกิดส่งมาเป็นข้อความธรรมดาที่ไม่ใช่ JSON
+                    if (result?.Trim().ToLower() == "success")
+                    {
+                        isPaid = true;
+                    }
+                }
+
+                // 🔴 ถ้าสถานะยังไม่ใช่ success ให้ตอบกลับไปว่า pending
+                if (!isPaid)
+                {
+                    return Ok(new
+                    {
+                        status = "pending",
+                        message = "ยังไม่ได้ชำระเงิน",
+                        debug_result = result
+                    });
+                }
+
+                // 🟢 2. บันทึกข้อมูลการชำระเงินลงตาราง Payment
+                var paymentRecord = new Payment
+                {
+                    Booking_id = bill.Booking_id,
+                    Bill_id = bill.Bill_id,
+                    Amount = bill.Total_amount,
+                    PaymentMethod = "โอน",
+                    Payment_Type = "1", // 'หน้าร้าน'
+                    PaymentDateTime = DateTime.Now,
+                    TransactionId = request.TransactionId
+                };
+
+                _context.Payment.Add(paymentRecord);
+
+                // 🟢 3. อัปเดตสถานะบิล
+                bill.PaymentMethod = "โอน";
+                bill.Closed_at = DateTime.Now;
+
+                // 🟢 4. ดึงโต๊ะผ่าน GroupTables (ถอดแบบมาจาก UpdateStatus)
+                var tableIds = new List<int>();
+
+                if (bill.Booking_id.HasValue)
+                {
+                    // ถ้ามี Booking_id ให้ดึงโต๊ะผ่าน GroupTables ของ Booking
+                    var booking = await _context.Bookings
+                        .Include(b => b.GroupTables)
+                        .FirstOrDefaultAsync(b => b.Booking_id == bill.Booking_id.Value);
+
+                    if (booking != null)
+                    {
+                        tableIds = booking.GroupTables
+                            .Where(gt => gt.Table_id.HasValue)
+                            .Select(gt => gt.Table_id!.Value)
+                            .ToList();
+                    }
+                }
+                else
+                {
+                    // ถ้าเป็นบิลหน้าร้าน (ไม่มี Booking) ให้ดึงจาก GroupTables โดยตรงผ่าน Bill_id
+                    tableIds = await _context.GroupTables
+                        .Where(gt => gt.Bill_id == bill.Bill_id && gt.Table_id.HasValue)
+                        .Select(gt => gt.Table_id!.Value)
+                        .ToListAsync();
+                }
+
+                // 🟢 5. ปรับสถานะโต๊ะในตาราง Tables เป็น "ว่าง"
+                var tables = await _context.Tables
+                    .Where(t => tableIds.Contains(t.Table_id))
+                    .ToListAsync();
+
+                tables.ForEach(t => t.Table_Status = "ว่าง");
+
+                // 🟢 6. เซฟข้อมูลลง DB และ Commit Transaction
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                // 🟢 7. ส่ง SignalR Real-time แจ้งเตือนบิลและโต๊ะ
+                await _hubContext.Clients.All.SendAsync("UpdateBill", new
+                {
+                    billId = bill.Bill_id,
+                    status = "CLOSED",
+                    paymentId = paymentRecord.Payment_Id
+                });
+
+                foreach (var table in tables)
+                {
+                    await _hubContext.Clients.All.SendAsync("UpdateTable", new
+                    {
+                        tableId = table.Table_id,
+                        status = "ว่าง"
+                    });
+                }
+
+                return Ok(new
+                {
+                    status = "success",
+                    api_result = result,
+                    message = "ชำระเงินสำเร็จ และปิดบิลเรียบร้อยแล้ว",
+                    payment_id = paymentRecord.Payment_Id,
+                    bill_id = bill.Bill_id
+                });
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                return StatusCode(500, new { message = ex.Message });
+            }
         }
-
-        var qrResult = await _promptPayService.GeneratePromptPayQr(amountToPay);
-
-        var parsed = JsonSerializer.Deserialize<JsonElement>(qrResult);
-        var dataProp = parsed.GetProperty("data");
-        
-        var transactionId = dataProp.GetProperty("transactionId").GetString();
-        string amountStr = dataProp.GetProperty("amount").ValueKind == JsonValueKind.Number
-            ? dataProp.GetProperty("amount").GetDecimal().ToString("F2")
-            : dataProp.GetProperty("amount").GetString();
-
-        return Ok(new
-        {
-            qr_data = qrResult,
-            amount_pay = amountStr,
-            bill_id = bill.Bill_id,
-            booking_id = bill.Booking_id,
-            transaction_id = transactionId
-        });
     }
-
-    [HttpPost("verify-payment")]
-    public async Task<IActionResult> VerifyPayment([FromBody] VerifyPaymentRequestDto request)
-    {
-        var bill = await _context.Bill
-            .FirstOrDefaultAsync(b => b.Bill_id == request.BillId);
-
-        if (bill == null)
-        {
-            return NotFound(new { message = "ไม่พบข้อมูลบิล" });
-        }
-
-        // เรียก ตรวจสอบสถานะการโอนเงินจาก PromptPay / Bank Gateway API
-        var result = await _promptPayService.CheckPaymentStatus(request.TransactionId);
-
-
-
-        // 🟢 บันทึกข้อมูลการชำระเงินลงตาราง Payment
-        var paymentRecord = new Payment
-        {
-            Booking_id = bill.Booking_id, // ใส่ Booking_id (ถ้ามี หรือ NULL)
-            Bill_id = bill.Bill_id,       // ใส่ Bill_id
-            Amount = bill.Total_amount,
-            PaymentMethod = "โอน",
-            Payment_Type = "หน้าร้าน",     // 'หน้าร้าน' ตาม Spec
-            PaymentDateTime = DateTime.Now,
-            TransactionId = request.TransactionId
-        };
-
-        _context.Payment.Add(paymentRecord);
-
-        // อัปเดตสถานะบิล
-        bill.PaymentMethod = "โอน";
-        bill.Closed_at = DateTime.Now;
-
-
-        await _context.SaveChangesAsync();
-
-        // 🟢 บรอดแคสต์แจ้งเตือน SignalR Real-time ไปยังทุกหน้าจอ (BillingList / CreateBill)
-        await _hubContext.Clients.All.SendAsync("UpdateBill", new
-        {
-            billId = bill.Bill_id,
-            status = "CLOSED",
-            paymentId = paymentRecord.Payment_Id
-        });
-
-        await _hubContext.Clients.All.SendAsync("UpdateTable", new
-        {
-            billId = bill.Bill_id,
-            status = "ว่าง"
-        });
-
-        return Ok(new
-        {
-            api_result = result,
-            message = "ชำระเงินสำเร็จ และปิดบิลเรียบร้อยแล้ว",
-            payment_id = paymentRecord.Payment_Id,
-            bill_id = bill.Bill_id
-        });
-    }
-
-    }
-
 }
