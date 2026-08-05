@@ -105,7 +105,7 @@ namespace Buffet_Restaurant_API.Controllers
 
                 await transaction.CommitAsync();
 
-                // 🔔 สะกิด SignalR แจ้งเตือนครัว
+                // 🔔 สะกิด SignalR แจ้งเตือนครัว — ยิงเป็น Order_id (แยกใบต่อรอบสั่ง)
                 await _hubContext.Clients.All.SendAsync("NewKitchenOrder", newOrder.Order_id);
 
                 return Ok(new
@@ -124,7 +124,7 @@ namespace Buffet_Restaurant_API.Controllers
             }
         }
 
-        // 🍳 2. ดึงสลิปใบบิลครัว + เจน QR Code ส่งขึ้น Cloudinary + พิมพ์ออก Simulator 9100
+        // 🍳 2. ดึงสลิปใบบิลครัว (ต่อ 1 ออเดอร์) + เจน QR Code ส่งขึ้น Cloudinary + พิมพ์ออก Simulator 9100
         [HttpGet("getKitchenTicket/{orderId}")]
         public async Task<IActionResult> GetKitchenTicket(int orderId, [FromServices] Cloudinary cloudinary = null)
         {
@@ -158,7 +158,7 @@ namespace Buffet_Restaurant_API.Controllers
                                    Quantity = od.Quantity
                                }).ToListAsync();
 
-            // 📲 สร้าง QR Code Cloudinary URL
+            // 📲 สร้าง QR Code Cloudinary URL (สำหรับแสดงบนหน้าเว็บ)
             string serveUrl = $"https://buffet-restaurant-management-system.vercel.app/serve-action?orderId={orderId}";
             string qrCodeCloudinaryUrl = "";
 
@@ -192,7 +192,7 @@ namespace Buffet_Restaurant_API.Controllers
                 catch { }
             }
 
-            // 🖨️ พิมพ์ออก Simulator ผ่าน Singleton Stream
+            // 🖨️ พิมพ์ออก Simulator ผ่าน Singleton Stream (พิมพ์ QR ลงกระดาษจริงด้วย)
             var printItems = items.Select(i => (i.MenuName, i.Quantity)).ToList();
             Task.Run(() => EscPosPrinterHelper.PrintKitchenTicket(order.OrderId, tableDisplay, order.OrderTime, printItems));
 
@@ -207,7 +207,7 @@ namespace Buffet_Restaurant_API.Controllers
             });
         }
 
-        // 📲 3. Endpoint สแกนนำเสิร์ฟ
+        // 📲 3. Endpoint สแกนนำเสิร์ฟ (ต่อ 1 ออเดอร์)
         [HttpGet("{orderId}/serve")]
         [HttpPost("{orderId}/serve")]
         public async Task<IActionResult> ServeOrder(int orderId)
@@ -217,6 +217,9 @@ namespace Buffet_Restaurant_API.Controllers
 
             order.Order_Status = "SERVED";
             await _context.SaveChangesAsync();
+
+            // 🔔 แจ้งครัวให้เอาการ์ดออกจากจอทันที
+            await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new { orderId = orderId, status = "SERVED" });
 
             return Ok(new { message = "นำเสิร์ฟเรียบร้อยแล้ว", orderId = orderId, status = order.Order_Status });
         }
@@ -327,6 +330,7 @@ namespace Buffet_Restaurant_API.Controllers
             }
         }
 
+        // 🖨️ พิมพ์ตั๋วครัว 1 ใบต่อ 1 ออเดอร์: หัวร้าน / เลขที่ใบเสร็จ / วันที่ / โต๊ะ / รายการอาหาร / QR
         public static void PrintKitchenTicket(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items)
         {
             lock (_lockObj)
@@ -337,6 +341,7 @@ namespace Buffet_Restaurant_API.Controllers
                 {
                     // ใช้ UTF-8 เพื่อรองรับภาษาไทยใน ESC/POS Simulator v3
                     Encoding utf8 = Encoding.UTF8;
+                    int lineWidth = 32; // กระดาษ 58mm ≈ 32 ตัวอักษร/บรรทัด
 
                     // 1. Reset Printer (ESC @)
                     _stream.Write(new byte[] { 0x1B, 0x40 }, 0, 2);
@@ -344,36 +349,34 @@ namespace Buffet_Restaurant_API.Controllers
                     // 2. Set Code Page UTF-8
                     _stream.Write(new byte[] { 0x1C, 0x2E }, 0, 2);
 
-                    // 3. Align Center (ESC a 1)
-                    _stream.Write(new byte[] { 0x1B, 0x61, 1 }, 0, 3);
+                    // ---- หัวร้าน: กึ่งกลาง ----
+                    _stream.Write(new byte[] { 0x1B, 0x61, 1 }, 0, 3); // Align center
+                    WriteLine(utf8, "ร้าน BUFFET");
+                    WriteLine(utf8, new string('-', lineWidth));
 
-                    StringBuilder sb = new StringBuilder();
-                    sb.AppendLine("ร้าน BUFFET");
-                    sb.AppendLine("----------------------------------------");
+                    // ---- ข้อมูลบิล: label ซ้าย / value ขวา ----
+                    _stream.Write(new byte[] { 0x1B, 0x61, 0 }, 0, 3); // Align left
+                    WriteLine(utf8, PadTwoCol("เลขที่ใบเสร็จ:", $"B{orderId:D5}", lineWidth));
+                    WriteLine(utf8, PadTwoCol("วันที่:", orderTime.ToString("dd/MM/yyyy HH:mm:ss"), lineWidth));
+                    WriteLine(utf8, PadTwoCol("โต๊ะ:", tableNumber, lineWidth));
+                    WriteLine(utf8, new string('-', lineWidth));
 
-                    byte[] headerBytes = utf8.GetBytes(sb.ToString());
-                    _stream.Write(headerBytes, 0, headerBytes.Length);
-
-                    // 4. Align Left (ESC a 0)
-                    _stream.Write(new byte[] { 0x1B, 0x61, 0 }, 0, 3);
-
-                    sb.Clear();
-                    sb.AppendLine($"เลขที่ใบเสร็จ: B{orderId.ToString().PadLeft(5, '0')}");
-                    sb.AppendLine($"วันที่: {orderTime:dd/MM/yyyy HH:mm:ss}");
-                    sb.AppendLine($"โต๊ะ: {tableNumber}");
-                    sb.AppendLine("----------------------------------------");
-
+                    // ---- รายการอาหาร ----
                     foreach (var item in items)
+                        WriteLine(utf8, PadTwoCol(item.Name, item.Qty.ToString(), lineWidth));
+
+                    WriteLine(utf8, new string('-', lineWidth));
+
+                    // ---- พิมพ์ QR จริงลงกระดาษ ----
+                    _stream.Write(new byte[] { 0x1B, 0x61, 1 }, 0, 3); // Align center
+                    using (var qrGen = new QRCodeGenerator())
                     {
-                        string name = item.Name.Length > 20 ? item.Name.Substring(0, 20) : item.Name.PadRight(20);
-                        sb.AppendLine($"{name} x{item.Qty}");
+                        var serveUrl = $"https://buffet-restaurant-management-system.vercel.app/serve-action?orderId={orderId}";
+                        var qrData = qrGen.CreateQrCode(serveUrl, QRCodeGenerator.ECCLevel.Q);
+                        PrintQrRaster(_stream, qrData, moduleSize: 4);
                     }
-                    sb.AppendLine("----------------------------------------");
 
-                    byte[] bodyBytes = utf8.GetBytes(sb.ToString());
-                    _stream.Write(bodyBytes, 0, bodyBytes.Length);
-
-                    // 5. คำสั่งตัดกระดาษแบบ Partial Cut (GS V 66 0) แยกบิลชัดเจน
+                    // 3. คำสั่งตัดกระดาษแบบ Partial Cut (GS V 66 0) แยกบิลชัดเจน
                     _stream.Write(new byte[] { 0x1D, 0x56, 66, 0 }, 0, 4);
 
                     // เคลียร์ Buffer ข้อมูลโดยไม่ปิดการเชื่อมต่อ
@@ -384,6 +387,56 @@ namespace Buffet_Restaurant_API.Controllers
                     _client?.Close();
                     _client = null;
                     _stream = null;
+                }
+            }
+
+            void WriteLine(Encoding enc, string text)
+            {
+                var b = enc.GetBytes(text + "\n");
+                _stream.Write(b, 0, b.Length);
+            }
+        }
+
+        // จัด label ชิดซ้าย / value ชิดขวา ในความกว้างบรรทัดเท่ากับ width
+        private static string PadTwoCol(string left, string right, int width)
+        {
+            int spaces = width - left.Length - right.Length;
+            if (spaces < 1) spaces = 1;
+            return left + new string(' ', spaces) + right;
+        }
+
+        // แปลง QRCodeData.ModuleMatrix (bool[,]) เป็น ESC/POS raster bit image (GS v 0) แล้วส่งตรงไปเครื่องพิมพ์
+        private static void PrintQrRaster(NetworkStream stream, QRCodeData qrData, int moduleSize)
+        {
+            var matrix = qrData.ModuleMatrix;
+            int modules = matrix.Count;
+            int pixelSize = modules * moduleSize;
+            int widthBytes = (pixelSize + 7) / 8;
+
+            byte[] header = new byte[]
+            {
+                0x1D, 0x76, 0x30, 0x00,                 // GS v 0 m(=0 normal)
+                (byte)(widthBytes & 0xFF), (byte)(widthBytes >> 8),
+                (byte)(pixelSize & 0xFF), (byte)(pixelSize >> 8)
+            };
+            stream.Write(header, 0, header.Length);
+
+            byte[] row = new byte[widthBytes];
+            for (int y = 0; y < modules; y++)
+            {
+                for (int rep = 0; rep < moduleSize; rep++)
+                {
+                    Array.Clear(row, 0, row.Length);
+                    for (int x = 0; x < modules; x++)
+                    {
+                        if (!matrix[y][x]) continue;
+                        for (int rx = 0; rx < moduleSize; rx++)
+                        {
+                            int px = x * moduleSize + rx;
+                            row[px / 8] |= (byte)(0x80 >> (px % 8));
+                        }
+                    }
+                    stream.Write(row, 0, row.Length);
                 }
             }
         }
