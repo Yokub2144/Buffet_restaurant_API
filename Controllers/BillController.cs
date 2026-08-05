@@ -166,7 +166,7 @@ namespace Buffet_Restaurant_API.Controllers
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                // 1. ค้นหา Bill พร้อม Include โต๊ะที่เกี่ยวข้อง (ดึง GroupTables จาก Booking ที่ผูกกับ Bill)
+                // 1. ค้นหา Bill
                 var bill = await _context.Bill
                     .FirstOrDefaultAsync(b => b.Bill_id == billId);
 
@@ -175,47 +175,87 @@ namespace Buffet_Restaurant_API.Controllers
                     return NotFound(new { message = "ไม่พบข้อมูลบิลที่ต้องการปิด" });
                 }
 
-                // 2. ค้นหาโต๊ะทั้งหมดที่ผูกกับ บิล/การจอง นี้
-                var booking = await _context.Bookings
-                    .Include(b => b.GroupTables)
-                    .FirstOrDefaultAsync(b => b.Booking_id == bill.Booking_id); // ปรับชื่อ FK ตาม Model จริงของคุณ เช่น bill.Booking_id
-
-                List<Tables> allTables = new List<Tables>();
-
-                if (booking != null && booking.GroupTables != null)
-                {
-                    var allTableIds = booking.GroupTables
-                        .Where(gt => gt.Table_id.HasValue)
-                        .Select(gt => gt.Table_id!.Value)
-                        .ToList();
-
-                    allTables = await _context.Tables
-                        .Where(t => allTableIds.Contains(t.Table_id))
-                        .ToListAsync();
-
-                    // 🟢 เปลี่ยนสถานะโต๊ะทั้งหมดเป็น "ว่าง"
-                    allTables.ForEach(t => t.Table_Status = "ว่าง");
-                }
-
-                // 3. อัปเดตข้อมูลการปิดบิล
+                // 🟢 2. อัปเดตข้อมูลการปิดบิล
                 bill.Closed_at = DateTime.Now;
                 bill.Fine_kg = dto.Fine_kg;
-                bill.Discount_id = dto.Discount_id; // หากใน CloseBillDto มีการส่งส่วนลดมาด้วย
+                bill.Discount_id = dto.Discount_id;
                 bill.Total_amount = dto.Total_amount;
-                bill.PaymentMethod = dto.PaymentMethod;
+                bill.PaymentMethod = dto.PaymentMethod ?? "เงินสด";
 
-                // 4. บันทึกข้อมูลและ Commit Transaction
+                // 🟢 3. บันทึกข้อมูลการชำระเงินลงตาราง Payment
+                var paymentRecord = new Payment
+                {
+                    Booking_id = bill.Booking_id,
+                    Bill_id = bill.Bill_id,
+                    Amount = bill.Total_amount,
+                    PaymentMethod = dto.PaymentMethod ?? "เงินสด",
+                    Payment_Type = "1", // 'หน้าร้าน'
+                    PaymentDateTime = DateTime.Now,
+                };
+
+                _context.Payment.Add(paymentRecord);
+
+                // 🟢 4. ดึงโต๊ะผ่าน GroupTables (รองรับทั้งบิลจองและบิลหน้าร้าน)
+                var tableIds = new List<int>();
+
+                if (bill.Booking_id.HasValue)
+                {
+                    // ถ้ามี Booking_id ให้ดึงโต๊ะผ่าน GroupTables ของ Booking
+                    var booking = await _context.Bookings
+                        .Include(b => b.GroupTables)
+                        .FirstOrDefaultAsync(b => b.Booking_id == bill.Booking_id.Value);
+
+                    if (booking != null)
+                    {
+                        tableIds = booking.GroupTables
+                            .Where(gt => gt.Table_id.HasValue)
+                            .Select(gt => gt.Table_id!.Value)
+                            .ToList();
+                    }
+                }
+                else
+                {
+                    // ถ้าเป็นบิลหน้าร้าน (ไม่มี Booking) ให้ดึงจาก GroupTables โดยตรงผ่าน Bill_id
+                    tableIds = await _context.GroupTables
+                        .Where(gt => gt.Bill_id == bill.Bill_id && gt.Table_id.HasValue)
+                        .Select(gt => gt.Table_id!.Value)
+                        .ToListAsync();
+                }
+
+                // 🟢 5. ปรับสถานะโต๊ะในตาราง Tables เป็น "ว่าง"
+                var tables = await _context.Tables
+                    .Where(t => tableIds.Contains(t.Table_id))
+                    .ToListAsync();
+
+                tables.ForEach(t => t.Table_Status = "ว่าง");
+
+                // 🟢 6. เซฟข้อมูลลง DB และ Commit Transaction
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                // 🟢 5. แจ้งเตือน Real-time ผ่าน SignalR ให้หน้าบ้านเปลี่ยนสี/สถานะโต๊ะเป็น "ว่าง"
-                foreach (var table in allTables)
+                // 🟢 7. ส่ง SignalR Real-time แจ้งเตือนบิลและสถานะโต๊ะเป็น "ว่าง"
+                await _hubContext.Clients.All.SendAsync("UpdateBill", new
                 {
-                    await _hubContext.Clients.All
-                        .SendAsync("UpdateTable", new { tableId = table.Table_id, status = "ว่าง" });
+                    billId = bill.Bill_id,
+                    status = "CLOSED",
+                    paymentId = paymentRecord.Payment_Id
+                });
+
+                foreach (var table in tables)
+                {
+                    await _hubContext.Clients.All.SendAsync("UpdateTable", new
+                    {
+                        tableId = table.Table_id,
+                        status = "ว่าง"
+                    });
                 }
 
-                return Ok(new { message = "เช็คบิลและปิดโต๊ะเรียบร้อยแล้ว" });
+                return Ok(new
+                {
+                    message = "เช็คบิล บันทึกการชำระเงิน และปิดโต๊ะเรียบร้อยแล้ว",
+                    payment_id = paymentRecord.Payment_Id,
+                    bill_id = bill.Bill_id
+                });
             }
             catch (Exception ex)
             {
@@ -232,6 +272,16 @@ namespace Buffet_Restaurant_API.Controllers
                 .ToListAsync();
 
             return Ok(bill);
+        }
+        [HttpGet("getReceipt")]
+        public async Task<IActionResult> GetReceipt()
+        {
+            var receipts = await _context.Bill
+                .Where(b => b.Closed_at != null)
+                .OrderByDescending(b => b.Closed_at)
+                .ToListAsync();
+
+            return Ok(receipts);
         }
 
         [HttpPut("update/{billId}")]
@@ -364,5 +414,6 @@ namespace Buffet_Restaurant_API.Controllers
                 return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการดึงข้อมูลบิล", error = ex.Message });
             }
         }
+
     }
 }

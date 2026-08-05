@@ -32,4 +32,10 @@ namespace Buffet_Restaurant_API.Dtos
         public int NumChildren { get; set; }
         public int? Discount_id { get; set; }
     }
+
+    public class UpdatePaymentMethodDto
+    {
+        public string PaymentMethod { get; set; } = string.Empty; 
+        public string? TransactionId { get; set; } 
+    }
 }

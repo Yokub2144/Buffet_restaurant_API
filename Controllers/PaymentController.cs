@@ -87,11 +87,11 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 return BadRequest(new { message = "ยอดเงินที่ต้องชำระต้องมากกว่า 0 บาท" });
             }
 
-            // 🟢 1. เรียกใช้งาน Service
+            //  เรียกใช้งาน Service
             var qrResult = await _promptPayService.GeneratePromptPayQr(amountToPay);
             Console.WriteLine($"=== CHECKOUT QR RESULT: {qrResult} ===");
 
-            // 🟢 2. ถ้าผลลัพธ์ขึ้นต้นด้วย Error (เช่น Error: Unauthorized) ให้ดักไว้ตรงนี้ทันที!
+            // ถ้าผลลัพธ์ขึ้นต้นด้วย Error ให้ดักไว้ตรงนี้ทันที!
             if (string.IsNullOrWhiteSpace(qrResult) || qrResult.StartsWith("Error"))
             {
                 return BadRequest(new
@@ -103,7 +103,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
 
             try
             {
-                // 🟢 3. อ่านค่า JSON เมื่อมั่นใจว่าเป็น JSON จริงๆ
+                // อ่านค่า JSON เมื่อมั่นใจว่าเป็น JSON จริงๆ
                 var parsed = JsonSerializer.Deserialize<JsonElement>(qrResult);
                 var dataProp = parsed.GetProperty("data");
 
@@ -113,6 +113,10 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 string amountStr = amountProp.ValueKind == JsonValueKind.Number
                     ? amountProp.GetDecimal().ToString("F2")
                     : amountProp.GetString();
+
+                // 🟢 4. อัปเดต Total_amount ลงตาราง Bill และเซฟลง Database
+                bill.Total_amount = amountToPay;
+                await _context.SaveChangesAsync();
 
                 return Ok(new
                 {
@@ -128,7 +132,6 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 return BadRequest(new { message = "อ่านข้อมูล QR Code ไม่สำเร็จ", detail = ex.Message, rawData = qrResult });
             }
         }
-
         [HttpPost("verify-payment")]
         public async Task<IActionResult> VerifyPayment([FromBody] VerifyPaymentRequestDto request)
         {
@@ -143,7 +146,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                     return NotFound(new { message = "ไม่พบข้อมูลบิล" });
                 }
 
-                // 🟢 1. ตรวจสอบสถานะชำระเงินจาก PromptPay / Bank Gateway API
+                // ตรวจสอบสถานะชำระเงินจาก PromptPay / Bank Gateway API
                 var result = await _promptPayService.CheckPaymentStatus(request.TransactionId);
 
                 bool isPaid = false;
@@ -172,7 +175,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                     }
                 }
 
-                // 🔴 ถ้าสถานะยังไม่ใช่ success ให้ตอบกลับไปว่า pending
+                //  ถ้าสถานะยังไม่ใช่ success ให้ตอบกลับไปว่า pending
                 if (!isPaid)
                 {
                     return Ok(new
@@ -183,7 +186,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                     });
                 }
 
-                // 🟢 2. บันทึกข้อมูลการชำระเงินลงตาราง Payment
+                // 2. บันทึกข้อมูลการชำระเงินลงตาราง Payment
                 var paymentRecord = new Payment
                 {
                     Booking_id = bill.Booking_id,
@@ -197,11 +200,11 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
 
                 _context.Payment.Add(paymentRecord);
 
-                // 🟢 3. อัปเดตสถานะบิล
+                // 3. อัปเดตสถานะบิล
                 bill.PaymentMethod = "โอน";
                 bill.Closed_at = DateTime.Now;
 
-                // 🟢 4. ดึงโต๊ะผ่าน GroupTables (ถอดแบบมาจาก UpdateStatus)
+                // ดึงโต๊ะผ่าน GroupTables (ถอดแบบมาจาก UpdateStatus)
                 var tableIds = new List<int>();
 
                 if (bill.Booking_id.HasValue)
@@ -228,18 +231,18 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                         .ToListAsync();
                 }
 
-                // 🟢 5. ปรับสถานะโต๊ะในตาราง Tables เป็น "ว่าง"
+                // ปรับสถานะโต๊ะในตาราง Tables เป็น "ว่าง"
                 var tables = await _context.Tables
                     .Where(t => tableIds.Contains(t.Table_id))
                     .ToListAsync();
 
                 tables.ForEach(t => t.Table_Status = "ว่าง");
 
-                // 🟢 6. เซฟข้อมูลลง DB และ Commit Transaction
+                // ซฟข้อมูลลง DB และ Commit Transaction
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                // 🟢 7. ส่ง SignalR Real-time แจ้งเตือนบิลและโต๊ะ
+                // ส่ง SignalR Real-time แจ้งเตือนบิลและโต๊ะ
                 await _hubContext.Clients.All.SendAsync("UpdateBill", new
                 {
                     billId = bill.Bill_id,
@@ -269,6 +272,55 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             {
                 await transaction.RollbackAsync();
                 return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
+        [HttpPut("update-payment-method/{billId}")]
+        public async Task<IActionResult> UpdatePaymentMethod(int billId, [FromBody] UpdatePaymentMethodDto dto)
+        {
+            if (dto == null || string.IsNullOrWhiteSpace(dto.PaymentMethod))
+            {
+                return BadRequest(new { message = "กรุณาระบุประเภทการชำระเงิน" });
+            }
+
+            try
+            {
+                // ค้นหาบิลตาม billId
+                var bill = await _context.Bill.FirstOrDefaultAsync(b => b.Bill_id == billId);
+
+                if (bill == null)
+                {
+                    return NotFound(new { message = "ไม่พบข้อมูลบิลที่ต้องการแก้ไข" });
+                }
+
+                // อัปเดตประเภทการชำระเงินในตาราง Bill
+                bill.PaymentMethod = dto.PaymentMethod;
+
+                // อัปเดตตาราง Payment 
+                var payment = await _context.Payment.FirstOrDefaultAsync(p => p.Bill_id == billId);
+                if (payment != null)
+                {
+                    payment.PaymentMethod = dto.PaymentMethod;
+
+                    if (!string.IsNullOrEmpty(dto.TransactionId))
+                    {
+                        payment.TransactionId = dto.TransactionId;
+                    }
+                }
+
+                //บันทึกข้อมูลลง Database
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    message = "อัปเดตประเภทการชำระเงินเรียบร้อยแล้ว",
+                    bill_id = bill.Bill_id,
+                    paymentMethod = bill.PaymentMethod
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการอัปเดตประเภทการชำระเงิน", error = ex.Message });
             }
         }
     }
