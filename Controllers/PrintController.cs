@@ -72,7 +72,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 byte[] imageBytes = ConvertBitmapToEscPosRaster(receiptBitmap);
 
                 string ipAddress = "nlszmqbxja.localto.net";
-                int port = 8621;
+                int port = 8616;
 
                 try
                 {
