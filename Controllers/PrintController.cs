@@ -71,7 +71,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             {
                 byte[] imageBytes = ConvertBitmapToEscPosRaster(receiptBitmap);
 
-                string ipAddress = "127.0.0.1";
+                string ipAddress = "nlszmqbxja.localto.net";
                 int port = 9100;
 
                 try

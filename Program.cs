@@ -10,15 +10,18 @@ using Buffet_Restaurant_Managment_System_API.Hubs;
 using Buffet_Restaurant_Managment_System_API.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// --- JWT Configuration ---
 var jwtKey = builder.Configuration["Jwt:Key"];
 if (string.IsNullOrEmpty(jwtKey))
 {
     Console.WriteLine("WARNING: JWT Key is missing!");
 }
-builder.Services.AddAuthentication(optiont =>
+
+builder.Services.AddAuthentication(options =>
 {
-    optiont.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    optiont.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
 }).AddJwtBearer(options =>
 {
     options.TokenValidationParameters = new TokenValidationParameters
@@ -29,9 +32,11 @@ builder.Services.AddAuthentication(optiont =>
         ValidateIssuerSigningKey = true,
         ValidIssuer = builder.Configuration["Jwt:Issuer"],
         ValidAudience = builder.Configuration["Jwt:Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? "DefaultFallbackSecretKey1234567890"))
     };
 });
+
+// --- CORS Configuration ---
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngular", policy =>
@@ -42,23 +47,24 @@ builder.Services.AddCors(options =>
                 "https://buffet-restaurant-management-system.vercel.app",
                 "https://buffet-restaurant-management-system-596epjhvb.vercel.app",
                 "http://localhost:3000"
-
             )
+            .SetIsOriginAllowed(origin => true) // 🟢 อนุญาต Origin จาก Vercel Subdomain และ Localhost ทั้งหมด
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials();
     });
 });
+
 builder.Services.AddSignalR();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-
+// --- Swagger Configuration ---
 builder.Services.AddSwaggerGen(option =>
 {
     option.SwaggerDoc("v1", new OpenApiInfo
     {
-        Title = "Buffet Restaurant Managment System API",
+        Title = "Buffet Restaurant Management System API",
         Version = "v1"
     });
     var securityScheme = new OpenApiSecurityScheme
@@ -82,7 +88,7 @@ builder.Services.AddSwaggerGen(option =>
     });
 });
 
-
+// --- Cloudinary Configuration ---
 DotEnv.Load();
 var cloudName = Environment.GetEnvironmentVariable("CLOUDINARY_NAME");
 var apiKey = Environment.GetEnvironmentVariable("CLOUDINARY_API_KEY");
@@ -93,7 +99,7 @@ builder.Services.AddSingleton(cloudinary);
 
 var Apikey_payment = Environment.GetEnvironmentVariable("API_KEY_PAYMENT");
 
-
+// --- Database Connection ---
 var connectionTemplate = builder.Configuration.GetConnectionString("DefaultConnection");
 var connectionString = connectionTemplate?
     .Replace("{DB_HOST}", Environment.GetEnvironmentVariable("DB_HOST"))
@@ -102,7 +108,6 @@ var connectionString = connectionTemplate?
     .Replace("{DB_USERNAME}", Environment.GetEnvironmentVariable("DB_USERNAME"))
     .Replace("{DB_PASSWORD}", Environment.GetEnvironmentVariable("DB_PASSWORD"));
 
-
 builder.Services.AddDbContext<restaurantDbContext>(options =>
     options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
 
@@ -110,18 +115,19 @@ builder.Services.AddHttpClient<PromptPayService>();
 builder.Services.AddMemoryCache();
 
 var app = builder.Build();
-app.UseCors("AllowAngular");
 
+// --- Pipeline Order (สำคัญมากสำหรับ CORS) ---
 app.UseSwagger();
 app.UseSwaggerUI();
-if (app.Environment.IsDevelopment())
-{
 
-}
+app.UseRouting(); // 🟢 1. ต้องเรียก UseRouting() ก่อน UseCors()
+
+app.UseCors("AllowAngular"); // 🟢 2. เรียก UseCors() หลัง UseRouting() และก่อน Authentication
+
 app.UseAuthentication();
 app.UseAuthorization();
-app.MapControllers();
 
+app.MapControllers();
 app.MapHub<tableStatusHub>("/tableStatusHub");
 
 app.Run();
