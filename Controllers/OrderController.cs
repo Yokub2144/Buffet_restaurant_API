@@ -8,8 +8,8 @@ using Microsoft.EntityFrameworkCore;
 using CloudinaryDotNet;
 using CloudinaryDotNet.Actions;
 using QRCoder;
+using SkiaSharp;
 using System.Net.Sockets;
-using System.Text;
 
 namespace Buffet_Restaurant_API.Controllers
 {
@@ -192,9 +192,9 @@ namespace Buffet_Restaurant_API.Controllers
                 catch { }
             }
 
-            // 🖨️ พิมพ์ออก Simulator ผ่าน Singleton Stream (พิมพ์ QR ลงกระดาษจริงด้วย)
+            // 🖨️ พิมพ์ตั๋วครัวเป็นรูปภาพ (ฟอนต์ Tahoma เดียวกับใบเสร็จหลังบ้าน) + QR ฝังในภาพเดียวกัน
             var printItems = items.Select(i => (i.MenuName, i.Quantity)).ToList();
-            Task.Run(() => EscPosPrinterHelper.PrintKitchenTicket(order.OrderId, tableDisplay, order.OrderTime, printItems));
+            _ = EscPosPrinterHelper.PrintKitchenTicket(order.OrderId, tableDisplay, order.OrderTime, printItems);
 
             return Ok(new
             {
@@ -245,7 +245,35 @@ namespace Buffet_Restaurant_API.Controllers
 
             return Ok(orderDetails);
         }
+        [HttpGet("getServeInfo/{orderId}")]
+        public async Task<IActionResult> GetServeInfo(int orderId)
+        {
+            var order = await _context.Orders
+                .Where(o => o.Order_id == orderId)
+                .Select(o => new { OrderId = o.Order_id, OrderStatus = o.Order_Status, BillId = o.Bill_id })
+                .FirstOrDefaultAsync();
 
+            if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
+
+            var tableNumbers = await (from gt in _context.GroupTables
+                                      join t in _context.Tables on gt.Table_id equals t.Table_id
+                                      where gt.Bill_id == order.BillId
+                                      select t.Table_Number).ToListAsync();
+            string tableDisplay = tableNumbers.Any() ? string.Join(", ", tableNumbers) : "ไม่ระบุโต๊ะ";
+
+            var items = await (from od in _context.Order_detail
+                               join m in _context.Menus on od.menu_id equals m.Menu_id
+                               where od.Order_id == orderId
+                               select new { MenuName = m.Menu_Name, Quantity = od.Quantity }).ToListAsync();
+
+            return Ok(new
+            {
+                OrderId = order.OrderId,
+                TableNumber = tableDisplay,
+                OrderStatus = order.OrderStatus,
+                Items = items
+            });
+        }
         // 💳 5. ดึงรายการชำระเงินตาม BillId
         [HttpGet("getBillPricedItems/{billId}")]
         public async Task<IActionResult> GetBillPricedItems(int billId)
@@ -287,158 +315,173 @@ namespace Buffet_Restaurant_API.Controllers
         }
     }
 
-    // 🖨️ Helper Class แบบ Persistent Singleton Connection (แก้ภาษาต่างดาว + ตัดกระดาษแยกบิลไม่ให้ปิดเอง)
+    // 🖨️ Helper Class: พิมพ์ตั๋วครัวเป็น "รูปภาพ" (ฟอนต์ Tahoma เดียวกับใบเสร็จหลังบ้าน PrintController.cs)
+    // แทนที่การพิมพ์ข้อความ ESC/POS ดิบแบบเดิม เพื่อให้หน้าตาตรงกับใบเสร็จหลังบ้าน 100%
     public static class EscPosPrinterHelper
     {
         private static readonly string _printerIp = "127.0.0.1";
         private static readonly int _printerPort = 9100;
-        private static TcpClient _client = null;
-        private static NetworkStream _stream = null;
-        private static readonly object _lockObj = new object();
 
-        private static bool EnsureConnected()
+        // 🖨️ พิมพ์ตั๋วครัว 1 ใบต่อ 1 ออเดอร์ แบบรูปภาพ: หัวร้าน / เลขที่ใบเสร็จ / วันที่ (พ.ศ.) / โต๊ะ / รายการอาหาร / QR
+        public static async Task PrintKitchenTicket(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items)
         {
-            lock (_lockObj)
+            using SKBitmap bitmap = DrawTicketImage(orderId, tableNumber, orderTime, items);
+            byte[] imageBytes = ConvertBitmapToEscPosRaster(bitmap);
+
+            try
             {
-                try
-                {
-                    if (_client != null && _client.Connected && _stream != null)
-                    {
-                        return true;
-                    }
+                using var client = new TcpClient();
+                await client.ConnectAsync(_printerIp, _printerPort);
+                using var stream = client.GetStream();
 
-                    _stream?.Dispose();
-                    _client?.Close();
+                var bytes = new List<byte>();
+                bytes.AddRange(new byte[] { 0x1B, 0x40 });               // Reset
+                bytes.AddRange(imageBytes);                              // ภาพใบตั๋ว (รวม QR ในตัว)
+                bytes.AddRange(new byte[] { 0x1B, 0x64, 0x03 });         // Feed
+                bytes.AddRange(new byte[] { 0x1D, 0x56, 0x42, 0x00 });   // Cut
 
-                    _client = new TcpClient();
-                    var result = _client.BeginConnect(_printerIp, _printerPort, null, null);
-                    bool success = result.AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(2));
-
-                    if (success && _client.Connected)
-                    {
-                        _client.EndConnect(result);
-                        _stream = _client.GetStream();
-                        return true;
-                    }
-                }
-                catch
-                {
-                    _client = null;
-                    _stream = null;
-                }
-                return false;
+                byte[] data = bytes.ToArray();
+                await stream.WriteAsync(data, 0, data.Length);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"พิมพ์ตั๋วครัวไม่สำเร็จ: {ex.Message}");
             }
         }
 
-        // 🖨️ พิมพ์ตั๋วครัว 1 ใบต่อ 1 ออเดอร์: หัวร้าน / เลขที่ใบเสร็จ / วันที่ / โต๊ะ / รายการอาหาร / QR
-        public static void PrintKitchenTicket(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items)
+        // 🎨 วาดตั๋วครัวลง Bitmap ด้วยฟอนต์ Tahoma เดียวกับ PrintController.cs
+        private static SKBitmap DrawTicketImage(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items)
         {
-            lock (_lockObj)
+            int width = 576;
+            int estimatedHeight = 700 + items.Count * 40;
+
+            SKBitmap bitmap = new SKBitmap(width, estimatedHeight);
+            using SKCanvas canvas = new SKCanvas(bitmap);
+            canvas.Clear(SKColors.White);
+
+            SKTypeface typeface = SKTypeface.FromFamilyName("Tahoma", SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)
+                                 ?? SKTypeface.Default;
+            SKTypeface boldTypeface = SKTypeface.FromFamilyName("Tahoma", SKFontStyleWeight.Bold, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)
+                                 ?? SKTypeface.Default;
+
+            using SKFont fontNormal = new SKFont(typeface, 22);
+            using SKFont fontHeader = new SKFont(boldTypeface, 36);
+
+            using SKPaint paint = new SKPaint { Color = SKColors.Black, IsAntialias = true };
+
+            float y = 50;
+            float leftMargin = 15;
+            float rightMargin = width - 15;
+
+            void DrawTextLeft(string text, float targetY, SKFont font) => canvas.DrawText(text, leftMargin, targetY, SKTextAlign.Left, font, paint);
+            void DrawTextRight(string text, float targetY, SKFont font) => canvas.DrawText(text, rightMargin, targetY, SKTextAlign.Right, font, paint);
+            void DrawTextCenter(string text, float targetY, SKFont font) => canvas.DrawText(text, width / 2f, targetY, SKTextAlign.Center, font, paint);
+
+            void DrawRow(string left, string right, SKFont? font = null, float lineSpacing = 38)
             {
-                if (!EnsureConnected()) return;
-
-                try
-                {
-                    // ใช้ UTF-8 เพื่อรองรับภาษาไทยใน ESC/POS Simulator v3
-                    Encoding utf8 = Encoding.UTF8;
-                    int lineWidth = 32; // กระดาษ 58mm ≈ 32 ตัวอักษร/บรรทัด
-
-                    // 1. Reset Printer (ESC @)
-                    _stream.Write(new byte[] { 0x1B, 0x40 }, 0, 2);
-
-                    // 2. Set Code Page UTF-8
-                    _stream.Write(new byte[] { 0x1C, 0x2E }, 0, 2);
-
-                    // ---- หัวร้าน: กึ่งกลาง ----
-                    _stream.Write(new byte[] { 0x1B, 0x61, 1 }, 0, 3); // Align center
-                    WriteLine(utf8, "ร้าน BUFFET");
-                    WriteLine(utf8, new string('-', lineWidth));
-
-                    // ---- ข้อมูลบิล: label ซ้าย / value ขวา ----
-                    _stream.Write(new byte[] { 0x1B, 0x61, 0 }, 0, 3); // Align left
-                    WriteLine(utf8, PadTwoCol("เลขที่ใบเสร็จ:", $"B{orderId:D5}", lineWidth));
-                    WriteLine(utf8, PadTwoCol("วันที่:", orderTime.ToString("dd/MM/yyyy HH:mm:ss"), lineWidth));
-                    WriteLine(utf8, PadTwoCol("โต๊ะ:", tableNumber, lineWidth));
-                    WriteLine(utf8, new string('-', lineWidth));
-
-                    // ---- รายการอาหาร ----
-                    foreach (var item in items)
-                        WriteLine(utf8, PadTwoCol(item.Name, item.Qty.ToString(), lineWidth));
-
-                    WriteLine(utf8, new string('-', lineWidth));
-
-                    // ---- พิมพ์ QR จริงลงกระดาษ ----
-                    _stream.Write(new byte[] { 0x1B, 0x61, 1 }, 0, 3); // Align center
-                    using (var qrGen = new QRCodeGenerator())
-                    {
-                        var serveUrl = $"https://buffet-restaurant-management-system.vercel.app/serve-action?orderId={orderId}";
-                        var qrData = qrGen.CreateQrCode(serveUrl, QRCodeGenerator.ECCLevel.Q);
-                        PrintQrRaster(_stream, qrData, moduleSize: 4);
-                    }
-
-                    // 3. คำสั่งตัดกระดาษแบบ Partial Cut (GS V 66 0) แยกบิลชัดเจน
-                    _stream.Write(new byte[] { 0x1D, 0x56, 66, 0 }, 0, 4);
-
-                    // เคลียร์ Buffer ข้อมูลโดยไม่ปิดการเชื่อมต่อ
-                    _stream.Flush();
-                }
-                catch
-                {
-                    _client?.Close();
-                    _client = null;
-                    _stream = null;
-                }
+                var f = font ?? fontNormal;
+                DrawTextLeft(left, y, f);
+                DrawTextRight(right, y, f);
+                y += lineSpacing;
             }
 
-            void WriteLine(Encoding enc, string text)
+            void DrawDivider()
             {
-                var b = enc.GetBytes(text + "\n");
-                _stream.Write(b, 0, b.Length);
-            }
-        }
-
-        // จัด label ชิดซ้าย / value ชิดขวา ในความกว้างบรรทัดเท่ากับ width
-        private static string PadTwoCol(string left, string right, int width)
-        {
-            int spaces = width - left.Length - right.Length;
-            if (spaces < 1) spaces = 1;
-            return left + new string(' ', spaces) + right;
-        }
-
-        // แปลง QRCodeData.ModuleMatrix (bool[,]) เป็น ESC/POS raster bit image (GS v 0) แล้วส่งตรงไปเครื่องพิมพ์
-        private static void PrintQrRaster(NetworkStream stream, QRCodeData qrData, int moduleSize)
-        {
-            var matrix = qrData.ModuleMatrix;
-            int modules = matrix.Count;
-            int pixelSize = modules * moduleSize;
-            int widthBytes = (pixelSize + 7) / 8;
-
-            byte[] header = new byte[]
-            {
-                0x1D, 0x76, 0x30, 0x00,                 // GS v 0 m(=0 normal)
-                (byte)(widthBytes & 0xFF), (byte)(widthBytes >> 8),
-                (byte)(pixelSize & 0xFF), (byte)(pixelSize >> 8)
-            };
-            stream.Write(header, 0, header.Length);
-
-            byte[] row = new byte[widthBytes];
-            for (int y = 0; y < modules; y++)
-            {
-                for (int rep = 0; rep < moduleSize; rep++)
+                using var linePaint = new SKPaint
                 {
-                    Array.Clear(row, 0, row.Length);
-                    for (int x = 0; x < modules; x++)
+                    Color = SKColors.Gray,
+                    StrokeWidth = 2,
+                    PathEffect = SKPathEffect.CreateDash(new float[] { 8, 4 }, 0)
+                };
+                canvas.DrawLine(leftMargin, y - 10, rightMargin, y - 10, linePaint);
+                y += 15;
+            }
+
+            // --- HEADER ---
+            DrawTextCenter("ร้าน BUFFET", y, fontHeader);
+            y += 50;
+            DrawDivider();
+
+            // --- INFO --- (แปลงปีเป็น พ.ศ. ให้ตรงกับใบเสร็จจริง)
+            string thaiDateStr = $"{orderTime:dd/MM}/{orderTime.Year + 543} {orderTime:HH:mm:ss}";
+            DrawRow("เลขที่ใบเสร็จ:", $"{orderId:D5}");
+            DrawRow("วันที่:", thaiDateStr);
+            DrawRow("โต๊ะ:", tableNumber);
+            DrawDivider();
+            y += 10;
+
+            // --- รายการอาหาร ---
+            foreach (var item in items)
+                DrawRow(item.Name + ":", item.Qty.ToString());
+
+            DrawDivider();
+            y += 20;
+
+            // --- QR (ฝังเป็นรูปในภาพเดียวกันเลย ไม่ต้องยิงคำสั่ง raster แยก) ---
+            string serveUrl = $"https://buffet-restaurant-management-system.vercel.app/serve-action?orderId={orderId}";
+            using (var qrGen = new QRCodeGenerator())
+            {
+                var qrData = qrGen.CreateQrCode(serveUrl, QRCodeGenerator.ECCLevel.Q);
+                var qrPng = new PngByteQRCode(qrData);
+                byte[] qrBytes = qrPng.GetGraphic(6);
+
+                using SKBitmap qrBitmap = SKBitmap.Decode(qrBytes);
+                int qrSize = 260;
+                float qrX = (width - qrSize) / 2f;
+                var srcRect = new SKRect(0, 0, qrBitmap.Width, qrBitmap.Height);
+                var destRect = new SKRect(qrX, y, qrX + qrSize, y + qrSize);
+                canvas.DrawBitmap(qrBitmap, srcRect, destRect, SKSamplingOptions.Default, paint);
+                y += qrSize + 20;
+            }
+
+            int finalHeight = (int)y;
+            SKBitmap cropped = new SKBitmap(width, finalHeight);
+            using (SKCanvas cropCanvas = new SKCanvas(cropped))
+            {
+                var rect = new SKRect(0, 0, width, finalHeight);
+                cropCanvas.DrawBitmap(bitmap, rect, rect, SKSamplingOptions.Default, paint);
+            }
+            return cropped;
+        }
+
+        // 🖼️ แปลง Bitmap เป็น ESC/POS raster bit image (GS v 0) แบบเดียวกับ PrintController.cs
+        private static byte[] ConvertBitmapToEscPosRaster(SKBitmap bitmap)
+        {
+            int width = bitmap.Width;
+            int height = bitmap.Height;
+            int widthBytes = (width + 7) / 8;
+
+            List<byte> bytes = new List<byte>();
+            bytes.AddRange(new byte[] { 0x1D, 0x76, 0x30, 0x00 });
+            bytes.Add((byte)(widthBytes % 256));
+            bytes.Add((byte)(widthBytes / 256));
+            bytes.Add((byte)(height % 256));
+            bytes.Add((byte)(height / 256));
+
+            for (int y = 0; y < height; y++)
+            {
+                for (int xByte = 0; xByte < widthBytes; xByte++)
+                {
+                    byte b = 0;
+                    for (int bit = 0; bit < 8; bit++)
                     {
-                        if (!matrix[y][x]) continue;
-                        for (int rx = 0; rx < moduleSize; rx++)
+                        int x = (xByte * 8) + bit;
+                        if (x < width)
                         {
-                            int px = x * moduleSize + rx;
-                            row[px / 8] |= (byte)(0x80 >> (px % 8));
+                            SKColor color = bitmap.GetPixel(x, y);
+                            int luminance = (int)(color.Red * 0.3 + color.Green * 0.59 + color.Blue * 0.11);
+                            if (luminance < 128)
+                            {
+                                b |= (byte)(0x80 >> bit);
+                            }
                         }
                     }
-                    stream.Write(row, 0, row.Length);
+                    bytes.Add(b);
                 }
             }
+
+            return bytes.ToArray();
         }
+
     }
 }
