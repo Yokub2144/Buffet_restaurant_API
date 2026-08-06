@@ -9,7 +9,12 @@ using CloudinaryDotNet;
 using CloudinaryDotNet.Actions;
 using QRCoder;
 using SkiaSharp;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Net.Sockets;
+using System.Threading.Tasks;
 
 namespace Buffet_Restaurant_API.Controllers
 {
@@ -333,13 +338,13 @@ namespace Buffet_Restaurant_API.Controllers
         }
     }
 
-    // 🖨️ Helper Class: พิมพ์ตั๋วครัวเป็น "รูปภาพ" (ฟอนต์ Tahoma เดียวกับใบเสร็จหลังบ้าน PrintController.cs)
+    // 🖨️ Helper Class: พิมพ์ตั๋วครัวเป็น "รูปภาพ" โดยใช้ Layout เดียวกับ PrintController.cs
     public static class EscPosPrinterHelper
     {
         private static readonly string _printerIp = "127.0.0.1";
         private static readonly int _printerPort = 9100;
 
-        // 🖨️ พิมพ์ตั๋วครัว 1 ใบต่อ 1 ออเดอร์ แบบรูปภาพ: หัวร้าน / เลขที่ใบเสร็จ / วันที่ (พ.ศ.) / โต๊ะ / รายการอาหาร / QR
+        // 🖨️ พิมพ์ตั๋วครัว 1 ใบต่อ 1 ออเดอร์ แบบรูปภาพ
         public static async Task PrintKitchenTicket(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items)
         {
             using SKBitmap bitmap = DrawTicketImage(orderId, tableNumber, orderTime, items);
@@ -366,11 +371,11 @@ namespace Buffet_Restaurant_API.Controllers
             }
         }
 
-        // 🎨 วาดตั๋วครัวลง Bitmap ด้วยฟอนต์ Tahoma เดียวกับ PrintController.cs
+        // 🎨 วาดตั๋วครัวลง Bitmap โดยอ้างอิง Structure เดียวกับ PrintController.cs
         private static SKBitmap DrawTicketImage(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items)
         {
             int width = 576;
-            int estimatedHeight = 700 + items.Count * 40;
+            int estimatedHeight = 1200;
 
             SKBitmap bitmap = new SKBitmap(width, estimatedHeight);
             using SKCanvas canvas = new SKCanvas(bitmap);
@@ -382,6 +387,7 @@ namespace Buffet_Restaurant_API.Controllers
                                  ?? SKTypeface.Default;
 
             using SKFont fontNormal = new SKFont(typeface, 22);
+            using SKFont fontBold = new SKFont(boldTypeface, 24);
             using SKFont fontHeader = new SKFont(boldTypeface, 36);
 
             using SKPaint paint = new SKPaint { Color = SKColors.Black, IsAntialias = true };
@@ -415,26 +421,27 @@ namespace Buffet_Restaurant_API.Controllers
             }
 
             // --- HEADER ---
-            DrawTextCenter("ร้าน BUFFET", y, fontHeader);
+            DrawTextCenter("ใบสั่งอาหาร (ตั๋วครัว)", y, fontHeader);
             y += 50;
-            DrawDivider();
 
-            // --- INFO --- (แปลงปีเป็น พ.ศ. ให้ตรงกับใบเสร็จจริง)
-            string thaiDateStr = $"{orderTime:dd/MM}/{orderTime.Year + 543} {orderTime:HH:mm:ss}";
+            // --- INFO ---
             DrawRow("เลขที่ใบเสร็จ:", $"{orderId:D5}");
-            DrawRow("วันที่:", thaiDateStr);
+            DrawRow("วันที่:", orderTime.ToString("dd/MM/yyyy HH:mm:ss"));
             DrawRow("โต๊ะ:", tableNumber);
+
             DrawDivider();
             y += 10;
 
-            // --- รายการอาหาร ---
+            // --- ITEMS ---
             foreach (var item in items)
-                DrawRow(item.Name + ":", item.Qty.ToString());
+            {
+                DrawRow($"{item.Name}", $"x{item.Qty}", fontBold);
+            }
 
             DrawDivider();
-            y += 20;
+            y += 10;
 
-            // --- QR Code ---
+            // --- QR CODE ---
             string serveUrl = $"https://buffet-restaurant-management-system.vercel.app/serve-action?orderId={orderId}";
             using (var qrGen = new QRCodeGenerator())
             {
@@ -443,13 +450,17 @@ namespace Buffet_Restaurant_API.Controllers
                 byte[] qrBytes = qrPng.GetGraphic(6);
 
                 using SKBitmap qrBitmap = SKBitmap.Decode(qrBytes);
-                int qrSize = 260;
+                int qrSize = 240;
                 float qrX = (width - qrSize) / 2f;
                 var srcRect = new SKRect(0, 0, qrBitmap.Width, qrBitmap.Height);
                 var destRect = new SKRect(qrX, y, qrX + qrSize, y + qrSize);
                 canvas.DrawBitmap(qrBitmap, srcRect, destRect, SKSamplingOptions.Default, paint);
-                y += qrSize + 20;
+                y += qrSize + 25;
             }
+
+            // --- FOOTER ---
+            DrawTextCenter("สแกน QR Code เพื่ออัปเดตสถานะนำเสิร์ฟ", y, fontNormal);
+            y += 35;
 
             int finalHeight = (int)y;
             SKBitmap cropped = new SKBitmap(width, finalHeight);
