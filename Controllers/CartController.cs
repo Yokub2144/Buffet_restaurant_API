@@ -26,7 +26,6 @@ namespace Buffet_Restaurant_API.Controllers
                                      .Where(c => c.Table_id == request.TableId)
                                      .OrderByDescending(c => c.Created_at)
                                      .FirstOrDefaultAsync();
-
             if (cart == null)
             {
                 cart = new Cart
