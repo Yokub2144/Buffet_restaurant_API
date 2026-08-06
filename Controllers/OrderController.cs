@@ -216,6 +216,7 @@ namespace Buffet_Restaurant_API.Controllers
             if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
 
             order.Order_Status = "SERVED";
+            _context.Orders.Update(order);
             await _context.SaveChangesAsync();
 
             // 🔔 แจ้งครัวให้เอาการ์ดออกจากจอทันที
@@ -245,36 +246,53 @@ namespace Buffet_Restaurant_API.Controllers
 
             return Ok(orderDetails);
         }
+
+        // 📲 5. ดึงข้อมูลเสิร์ฟ + บังคับอัปเดตสถานะเป็น "กำลังนำเสิร์ฟ" ลง Database ทันทีที่สแกน
         [HttpGet("getServeInfo/{orderId}")]
         public async Task<IActionResult> GetServeInfo(int orderId)
         {
-            var order = await _context.Orders
-                .Where(o => o.Order_id == orderId)
-                .Select(o => new { OrderId = o.Order_id, OrderStatus = o.Order_Status, BillId = o.Bill_id })
-                .FirstOrDefaultAsync();
-
+            // ดึง Entity Orders มาตรงๆ เพื่อให้ EF Core ทำการ Track และอัปเดตข้อมูลได้
+            var order = await _context.Orders.FirstOrDefaultAsync(o => o.Order_id == orderId);
             if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
+
+            // อัปเดตสถานะเป็น "กำลังนำเสิร์ฟ" หากยังไม่ถูกเสิร์ฟ (SERVED)
+            if (order.Order_Status != "SERVED")
+            {
+                order.Order_Status = "กำลังนำเสิร์ฟ";
+                _context.Orders.Update(order);
+                await _context.SaveChangesAsync();
+
+                // 🔔 แจ้ง SignalR ไปยังระบบ Realtime
+                await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new { orderId = orderId, status = "กำลังนำเสิร์ฟ" });
+            }
 
             var tableNumbers = await (from gt in _context.GroupTables
                                       join t in _context.Tables on gt.Table_id equals t.Table_id
-                                      where gt.Bill_id == order.BillId
+                                      where gt.Bill_id == order.Bill_id
                                       select t.Table_Number).ToListAsync();
+
             string tableDisplay = tableNumbers.Any() ? string.Join(", ", tableNumbers) : "ไม่ระบุโต๊ะ";
 
             var items = await (from od in _context.Order_detail
                                join m in _context.Menus on od.menu_id equals m.Menu_id
                                where od.Order_id == orderId
-                               select new { MenuName = m.Menu_Name, Quantity = od.Quantity }).ToListAsync();
+                               select new
+                               {
+                                   MenuId = od.menu_id,
+                                   MenuName = m.Menu_Name,
+                                   Quantity = od.Quantity
+                               }).ToListAsync();
 
             return Ok(new
             {
-                OrderId = order.OrderId,
+                OrderId = order.Order_id,
                 TableNumber = tableDisplay,
-                OrderStatus = order.OrderStatus,
+                OrderStatus = order.Order_Status,
                 Items = items
             });
         }
-        // 💳 5. ดึงรายการชำระเงินตาม BillId
+
+        // 💳 6. ดึงรายการชำระเงินตาม BillId
         [HttpGet("getBillPricedItems/{billId}")]
         public async Task<IActionResult> GetBillPricedItems(int billId)
         {
@@ -316,7 +334,6 @@ namespace Buffet_Restaurant_API.Controllers
     }
 
     // 🖨️ Helper Class: พิมพ์ตั๋วครัวเป็น "รูปภาพ" (ฟอนต์ Tahoma เดียวกับใบเสร็จหลังบ้าน PrintController.cs)
-    // แทนที่การพิมพ์ข้อความ ESC/POS ดิบแบบเดิม เพื่อให้หน้าตาตรงกับใบเสร็จหลังบ้าน 100%
     public static class EscPosPrinterHelper
     {
         private static readonly string _printerIp = "127.0.0.1";
@@ -417,7 +434,7 @@ namespace Buffet_Restaurant_API.Controllers
             DrawDivider();
             y += 20;
 
-            // --- QR (ฝังเป็นรูปในภาพเดียวกันเลย ไม่ต้องยิงคำสั่ง raster แยก) ---
+            // --- QR Code ---
             string serveUrl = $"https://buffet-restaurant-management-system.vercel.app/serve-action?orderId={orderId}";
             using (var qrGen = new QRCodeGenerator())
             {
@@ -444,7 +461,7 @@ namespace Buffet_Restaurant_API.Controllers
             return cropped;
         }
 
-        // 🖼️ แปลง Bitmap เป็น ESC/POS raster bit image (GS v 0) แบบเดียวกับ PrintController.cs
+        // 🖼️ แปลง Bitmap เป็น ESC/POS raster bit image (GS v 0)
         private static byte[] ConvertBitmapToEscPosRaster(SKBitmap bitmap)
         {
             int width = bitmap.Width;
@@ -482,6 +499,5 @@ namespace Buffet_Restaurant_API.Controllers
 
             return bytes.ToArray();
         }
-
     }
 }
