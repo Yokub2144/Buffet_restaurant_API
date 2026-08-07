@@ -344,7 +344,6 @@ namespace Buffet_Restaurant_API.Controllers
         private static readonly string _printerIp = "127.0.0.1";
         private static readonly int _printerPort = 9100;
 
-        // 🖨️ พิมพ์ตั๋วครัว 1 ใบต่อ 1 ออเดอร์ แบบรูปภาพ
         public static async Task PrintKitchenTicket(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items)
         {
             using SKBitmap bitmap = DrawTicketImage(orderId, tableNumber, orderTime, items);
@@ -358,12 +357,14 @@ namespace Buffet_Restaurant_API.Controllers
 
                 var bytes = new List<byte>();
                 bytes.AddRange(new byte[] { 0x1B, 0x40 });               // Reset
-                bytes.AddRange(imageBytes);                              // ภาพใบตั๋ว (รวม QR ในตัว)
-                bytes.AddRange(new byte[] { 0x1B, 0x64, 0x03 });         // Feed
+                bytes.AddRange(imageBytes);                              // ภาพใบตั๋วครัว
+                bytes.Add(0x0A);                                         // 🟢 เติม Line Feed ปิดท้ายบล็อกภาพ (แก้ไขอาการค้าง)
+                bytes.AddRange(new byte[] { 0x1B, 0x64, 0x03 });         // Feed 3 บรรทัด
                 bytes.AddRange(new byte[] { 0x1D, 0x56, 0x42, 0x00 });   // Cut
 
                 byte[] data = bytes.ToArray();
                 await stream.WriteAsync(data, 0, data.Length);
+                await stream.FlushAsync();
             }
             catch (Exception ex)
             {
@@ -371,11 +372,11 @@ namespace Buffet_Restaurant_API.Controllers
             }
         }
 
-        // 🎨 วาดตั๋วครัวลง Bitmap โดยอ้างอิง Structure เดียวกับ PrintController.cs
         private static SKBitmap DrawTicketImage(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items)
         {
-            int width = 576;
-            int estimatedHeight = 1200;
+            // 🟢 ปรับลดความกว้างลงมาที่ 384px (มาตรฐาน 58mm / ESC-POS Emulator) ช่วยลดขนาด Byte ลงครึ่งนึง ทำให้วาดเร็ว ไม่ค้าง
+            int width = 384;
+            int estimatedHeight = 1000;
 
             SKBitmap bitmap = new SKBitmap(width, estimatedHeight);
             using SKCanvas canvas = new SKCanvas(bitmap);
@@ -386,21 +387,21 @@ namespace Buffet_Restaurant_API.Controllers
             SKTypeface boldTypeface = SKTypeface.FromFamilyName("Tahoma", SKFontStyleWeight.Bold, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)
                                  ?? SKTypeface.Default;
 
-            using SKFont fontNormal = new SKFont(typeface, 22);
-            using SKFont fontBold = new SKFont(boldTypeface, 24);
-            using SKFont fontHeader = new SKFont(boldTypeface, 36);
+            using SKFont fontNormal = new SKFont(typeface, 18);
+            using SKFont fontBold = new SKFont(boldTypeface, 20);
+            using SKFont fontHeader = new SKFont(boldTypeface, 26);
 
             using SKPaint paint = new SKPaint { Color = SKColors.Black, IsAntialias = true };
 
-            float y = 50;
-            float leftMargin = 15;
-            float rightMargin = width - 15;
+            float y = 35;
+            float leftMargin = 10;
+            float rightMargin = width - 10;
 
             void DrawTextLeft(string text, float targetY, SKFont font) => canvas.DrawText(text, leftMargin, targetY, SKTextAlign.Left, font, paint);
             void DrawTextRight(string text, float targetY, SKFont font) => canvas.DrawText(text, rightMargin, targetY, SKTextAlign.Right, font, paint);
             void DrawTextCenter(string text, float targetY, SKFont font) => canvas.DrawText(text, width / 2f, targetY, SKTextAlign.Center, font, paint);
 
-            void DrawRow(string left, string right, SKFont? font = null, float lineSpacing = 38)
+            void DrawRow(string left, string right, SKFont? font = null, float lineSpacing = 30)
             {
                 var f = font ?? fontNormal;
                 DrawTextLeft(left, y, f);
@@ -413,16 +414,16 @@ namespace Buffet_Restaurant_API.Controllers
                 using var linePaint = new SKPaint
                 {
                     Color = SKColors.Gray,
-                    StrokeWidth = 2,
-                    PathEffect = SKPathEffect.CreateDash(new float[] { 8, 4 }, 0)
+                    StrokeWidth = 1.5f,
+                    PathEffect = SKPathEffect.CreateDash(new float[] { 6, 3 }, 0)
                 };
-                canvas.DrawLine(leftMargin, y - 10, rightMargin, y - 10, linePaint);
-                y += 15;
+                canvas.DrawLine(leftMargin, y - 8, rightMargin, y - 8, linePaint);
+                y += 12;
             }
 
             // --- HEADER ---
             DrawTextCenter("ใบสั่งอาหาร (ตั๋วครัว)", y, fontHeader);
-            y += 50;
+            y += 40;
 
             // --- INFO ---
             DrawRow("เลขที่ใบเสร็จ:", $"{orderId:D5}");
@@ -430,7 +431,7 @@ namespace Buffet_Restaurant_API.Controllers
             DrawRow("โต๊ะ:", tableNumber);
 
             DrawDivider();
-            y += 10;
+            y += 5;
 
             // --- ITEMS ---
             foreach (var item in items)
@@ -439,7 +440,7 @@ namespace Buffet_Restaurant_API.Controllers
             }
 
             DrawDivider();
-            y += 10;
+            y += 5;
 
             // --- QR CODE ---
             string serveUrl = $"https://buffet-restaurant-management-system.vercel.app/serve-action?orderId={orderId}";
@@ -447,20 +448,20 @@ namespace Buffet_Restaurant_API.Controllers
             {
                 var qrData = qrGen.CreateQrCode(serveUrl, QRCodeGenerator.ECCLevel.Q);
                 var qrPng = new PngByteQRCode(qrData);
-                byte[] qrBytes = qrPng.GetGraphic(6);
+                byte[] qrBytes = qrPng.GetGraphic(5);
 
                 using SKBitmap qrBitmap = SKBitmap.Decode(qrBytes);
-                int qrSize = 240;
+                int qrSize = 180;
                 float qrX = (width - qrSize) / 2f;
                 var srcRect = new SKRect(0, 0, qrBitmap.Width, qrBitmap.Height);
                 var destRect = new SKRect(qrX, y, qrX + qrSize, y + qrSize);
                 canvas.DrawBitmap(qrBitmap, srcRect, destRect, SKSamplingOptions.Default, paint);
-                y += qrSize + 25;
+                y += qrSize + 15;
             }
 
             // --- FOOTER ---
             DrawTextCenter("สแกน QR Code เพื่ออัปเดตสถานะนำเสิร์ฟ", y, fontNormal);
-            y += 35;
+            y += 25;
 
             int finalHeight = (int)y;
             SKBitmap cropped = new SKBitmap(width, finalHeight);
@@ -472,7 +473,6 @@ namespace Buffet_Restaurant_API.Controllers
             return cropped;
         }
 
-        // 🖼️ แปลง Bitmap เป็น ESC/POS raster bit image (GS v 0)
         private static byte[] ConvertBitmapToEscPosRaster(SKBitmap bitmap)
         {
             int width = bitmap.Width;
