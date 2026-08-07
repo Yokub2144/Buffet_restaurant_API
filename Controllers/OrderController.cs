@@ -217,17 +217,34 @@ namespace Buffet_Restaurant_API.Controllers
         [HttpPost("{orderId}/serve")]
         public async Task<IActionResult> ServeOrder(int orderId)
         {
-            var order = await _context.Orders.FirstOrDefaultAsync(o => o.Order_id == orderId);
-            if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
+            try
+            {
+                var order = await _context.Orders.FirstOrDefaultAsync(o => o.Order_id == orderId);
+                if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
 
-            order.Order_Status = "SERVED";
-            _context.Orders.Update(order);
-            await _context.SaveChangesAsync();
+                order.Order_Status = "SERVED";
+                _context.Orders.Update(order);
+                await _context.SaveChangesAsync();
 
-            // 🔔 แจ้งครัวให้เอาการ์ดออกจากจอทันที
-            await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new { orderId = orderId, status = "SERVED" });
+                // 🔔 แจ้งครัวให้เอาการ์ดออกจากจอทันที
+                try
+                {
+                    await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new { orderId = orderId, status = "SERVED" });
+                }
+                catch (Exception hubEx)
+                {
+                    // ไม่ให้ SignalR พังจนทำให้ทั้ง request fail — สถานะใน DB อัปเดตสำเร็จไปแล้ว
+                    Console.WriteLine($"แจ้งเตือน SignalR ไม่สำเร็จ: {hubEx.Message}");
+                }
 
-            return Ok(new { message = "นำเสิร์ฟเรียบร้อยแล้ว", orderId = orderId, status = order.Order_Status });
+                return Ok(new { message = "นำเสิร์ฟเรียบร้อยแล้ว", orderId = orderId, status = order.Order_Status });
+            }
+            catch (Exception ex)
+            {
+                var detailedError = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+                Console.WriteLine($"ServeOrder ล้มเหลว order {orderId}: {detailedError}");
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการอัปเดตสถานะเสิร์ฟ", error = detailedError });
+            }
         }
 
         // 🔍 4. ดึงรายละเอียดออเดอร์
