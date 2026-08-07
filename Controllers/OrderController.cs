@@ -401,8 +401,8 @@ namespace Buffet_Restaurant_API.Controllers
 
         private static SKBitmap DrawTicketImage(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items, string frontendBaseUrl)
         {
-            // 🟢 ปรับลดความกว้างลงมาที่ 384px (มาตรฐาน 58mm / ESC-POS Emulator) ช่วยลดขนาด Byte ลงครึ่งนึง ทำให้วาดเร็ว ไม่ค้าง
-            int width = 384;
+            // 🟢 ใช้ขนาดเดียวกับ PrintController.cs (576px) ที่พิมพ์เต็มกระดาษได้ปกติอยู่แล้ว
+            int width = 576;
             int estimatedHeight = 1000;
 
             SKBitmap bitmap = new SKBitmap(width, estimatedHeight);
@@ -421,8 +421,8 @@ namespace Buffet_Restaurant_API.Controllers
             using SKPaint paint = new SKPaint { Color = SKColors.Black, IsAntialias = true };
 
             float y = 35;
-            float leftMargin = 10;
-            float rightMargin = width - 10;
+            float leftMargin = 15;
+            float rightMargin = width - 15;
 
             void DrawTextLeft(string text, float targetY, SKFont font) => canvas.DrawText(text, leftMargin, targetY, SKTextAlign.Left, font, paint);
             void DrawTextRight(string text, float targetY, SKFont font) => canvas.DrawText(text, rightMargin, targetY, SKTextAlign.Right, font, paint);
@@ -448,22 +448,24 @@ namespace Buffet_Restaurant_API.Controllers
                 y += 12;
             }
 
-            // --- HEADER ---
-            DrawTextCenter("ใบสั่งอาหาร (ตั๋วครัว)", y, fontHeader);
-            y += 40;
+            // --- HEADER: ชื่อร้าน ---
+            DrawTextCenter("ร้าน BUFFET", y, fontHeader);
+            y += 35;
+            DrawDivider();
+            y += 5;
 
             // --- INFO ---
-            DrawRow("เลขที่ใบเสร็จ:", $"{orderId:D5}");
+            DrawRow("เลขที่ใบเสร็จ:", $"B{orderId:D5}");
             DrawRow("วันที่:", orderTime.ToString("dd/MM/yyyy HH:mm:ss"));
             DrawRow("โต๊ะ:", tableNumber);
 
             DrawDivider();
             y += 5;
 
-            // --- ITEMS ---
+            // --- ITEMS: "ชื่อเมนู:   จำนวน" (ไม่ใช้ตัวหนา ไม่มี "x" นำหน้า) ---
             foreach (var item in items)
             {
-                DrawRow($"{item.Name}", $"x{item.Qty}", fontBold);
+                DrawRow($"{item.Name}:", $"{item.Qty}");
             }
 
             DrawDivider();
@@ -485,10 +487,6 @@ namespace Buffet_Restaurant_API.Controllers
                 canvas.DrawBitmap(qrBitmap, srcRect, destRect, SKSamplingOptions.Default, paint);
                 y += qrSize + 15;
             }
-
-            // --- FOOTER ---
-            DrawTextCenter("สแกน QR Code เพื่ออัปเดตสถานะนำเสิร์ฟ", y, fontNormal);
-            y += 25;
 
             int finalHeight = (int)y;
             SKBitmap cropped = new SKBitmap(width, finalHeight);
