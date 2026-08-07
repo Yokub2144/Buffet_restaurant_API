@@ -24,11 +24,21 @@ namespace Buffet_Restaurant_API.Controllers
     {
         private readonly restaurantDbContext _context;
         private readonly IHubContext<tableStatusHub> _hubContext;
+        private readonly IConfiguration _configuration;
 
-        public OrderController(restaurantDbContext context, IHubContext<tableStatusHub> hubContext)
+        public OrderController(restaurantDbContext context, IHubContext<tableStatusHub> hubContext, IConfiguration configuration)
         {
             _context = context;
             _hubContext = hubContext;
+            _configuration = configuration;
+        }
+
+        // 🟢 อ่าน base URL ของหน้าเว็บจาก appsettings ตาม environment (local ใช้ localhost, production ใช้ vercel)
+        // ตั้งค่าใน appsettings.Development.json => "FrontendBaseUrl": "http://localhost:4200"
+        // ตั้งค่าใน appsettings.json (production)   => "FrontendBaseUrl": "https://buffet-restaurant-management-system.vercel.app"
+        private string GetFrontendBaseUrl()
+        {
+            return _configuration["FrontendBaseUrl"] ?? "https://buffet-restaurant-management-system.vercel.app";
         }
 
         // 🟢 1. Checkout สั่งซื้ออาหาร
@@ -164,7 +174,7 @@ namespace Buffet_Restaurant_API.Controllers
                                }).ToListAsync();
 
             // 📲 สร้าง QR Code Cloudinary URL (สำหรับแสดงบนหน้าเว็บ)
-            string serveUrl = $"https://buffet-restaurant-management-system.vercel.app/serve-action?orderId={orderId}";
+            string serveUrl = $"{GetFrontendBaseUrl()}/serve-action?orderId={orderId}";
             string qrCodeCloudinaryUrl = "";
 
             if (cloudinary != null)
@@ -199,7 +209,7 @@ namespace Buffet_Restaurant_API.Controllers
 
             // 🖨️ พิมพ์ตั๋วครัวเป็นรูปภาพ (ฟอนต์ Tahoma เดียวกับใบเสร็จหลังบ้าน) + QR ฝังในภาพเดียวกัน
             var printItems = items.Select(i => (i.MenuName, i.Quantity)).ToList();
-            _ = EscPosPrinterHelper.PrintKitchenTicket(order.OrderId, tableDisplay, order.OrderTime, printItems);
+            _ = EscPosPrinterHelper.PrintKitchenTicket(order.OrderId, tableDisplay, order.OrderTime, printItems, GetFrontendBaseUrl());
 
             return Ok(new
             {
@@ -361,9 +371,9 @@ namespace Buffet_Restaurant_API.Controllers
         private static readonly string _printerIp = "127.0.0.1";
         private static readonly int _printerPort = 9100;
 
-        public static async Task PrintKitchenTicket(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items)
+        public static async Task PrintKitchenTicket(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items, string frontendBaseUrl = "https://buffet-restaurant-management-system.vercel.app")
         {
-            using SKBitmap bitmap = DrawTicketImage(orderId, tableNumber, orderTime, items);
+            using SKBitmap bitmap = DrawTicketImage(orderId, tableNumber, orderTime, items, frontendBaseUrl);
             byte[] imageBytes = ConvertBitmapToEscPosRaster(bitmap);
 
             try
@@ -389,7 +399,7 @@ namespace Buffet_Restaurant_API.Controllers
             }
         }
 
-        private static SKBitmap DrawTicketImage(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items)
+        private static SKBitmap DrawTicketImage(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items, string frontendBaseUrl)
         {
             // 🟢 ปรับลดความกว้างลงมาที่ 384px (มาตรฐาน 58mm / ESC-POS Emulator) ช่วยลดขนาด Byte ลงครึ่งนึง ทำให้วาดเร็ว ไม่ค้าง
             int width = 384;
@@ -460,7 +470,7 @@ namespace Buffet_Restaurant_API.Controllers
             y += 5;
 
             // --- QR CODE ---
-            string serveUrl = $"https://buffet-restaurant-management-system.vercel.app/serve-action?orderId={orderId}";
+            string serveUrl = $"{frontendBaseUrl}/serve-action?orderId={orderId}";
             using (var qrGen = new QRCodeGenerator())
             {
                 var qrData = qrGen.CreateQrCode(serveUrl, QRCodeGenerator.ECCLevel.Q);
