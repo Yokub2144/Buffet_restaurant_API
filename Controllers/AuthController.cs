@@ -211,7 +211,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
 
             if (!isMember && !isEmployee)
             {
-                return BadRequest("ไม่พบอีเมลนี้ในระบบ กรุณาตรวจสอบอีกครั้ง");
+                return BadRequest(new { message = "ไม่พบอีเมลนี้ในระบบ กรุณาตรวจสอบอีกครั้ง" });
             }
             var otp = new Random().Next(100000, 999999).ToString();
 
@@ -233,7 +233,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             await client.AuthenticateAsync("66011212144@msu.ac.th", "jgywcixvqrgnhtqq"); 
             await client.SendAsync(message);
             await client.DisconnectAsync(true);
-            return Ok("ส่ง OTP สำเร็จ");
+            return Ok(new { message = "ส่งรหัส OTP สำเร็จ กรุณาตรวจสอบอีเมลของคุณ" });
         }
         catch (Exception ex)
         {
@@ -255,14 +255,14 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 }
             }
 
-            return BadRequest("รหัส OTP ไม่ถูกต้องหรือหมดอายุ");
+            return BadRequest(new { message = "รหัส OTP ไม่ถูกต้องหรือหมดอายุ กรุณาลองใหม่อีกครั้ง" });
         }
         [HttpPost("reset-password")]
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordReq model)
         {
             if (!_cache.TryGetValue($"Verified_{model.Email}", out bool isVerified) || !isVerified)
             {   
-                return BadRequest("คำขอไม่ถูกต้อง กรุณายืนยัน OTP อีกครั้ง");
+                return BadRequest(new { message = "คำขอไม่ถูกต้อง กรุณายืนยัน OTP อีกครั้ง" });
             }
             var Members = await _context.Members.FirstOrDefaultAsync(u => u.Email == model.Email);
 
@@ -275,7 +275,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 {
                     employee.Password = BCrypt.Net.BCrypt.HashPassword(model.NewPassword);
                 }else{
-                    return NotFound("ไม่พบอีเมลนี้ในระบบ");
+                    return NotFound(new { message = "ไม่พบอีเมลนี้ในระบบ" });
                 }
             }
 
