@@ -9,7 +9,12 @@ using CloudinaryDotNet;
 using CloudinaryDotNet.Actions;
 using QRCoder;
 using SkiaSharp;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Net.Sockets;
+using System.Threading.Tasks;
 
 namespace Buffet_Restaurant_API.Controllers
 {
@@ -19,11 +24,21 @@ namespace Buffet_Restaurant_API.Controllers
     {
         private readonly restaurantDbContext _context;
         private readonly IHubContext<tableStatusHub> _hubContext;
+        private readonly IConfiguration _configuration;
 
-        public OrderController(restaurantDbContext context, IHubContext<tableStatusHub> hubContext)
+        public OrderController(restaurantDbContext context, IHubContext<tableStatusHub> hubContext, IConfiguration configuration)
         {
             _context = context;
             _hubContext = hubContext;
+            _configuration = configuration;
+        }
+
+        // 🟢 อ่าน base URL ของหน้าเว็บจาก appsettings ตาม environment (local ใช้ localhost, production ใช้ vercel)
+        // ตั้งค่าใน appsettings.Development.json => "FrontendBaseUrl": "http://localhost:4200"
+        // ตั้งค่าใน appsettings.json (production)   => "FrontendBaseUrl": "https://buffet-restaurant-management-system.vercel.app"
+        private string GetFrontendBaseUrl()
+        {
+            return _configuration["FrontendBaseUrl"] ?? "https://buffet-restaurant-management-system.vercel.app";
         }
 
         // 🟢 1. Checkout สั่งซื้ออาหาร
@@ -159,7 +174,7 @@ namespace Buffet_Restaurant_API.Controllers
                                }).ToListAsync();
 
             // 📲 สร้าง QR Code Cloudinary URL (สำหรับแสดงบนหน้าเว็บ)
-            string serveUrl = $"https://buffet-restaurant-management-system.vercel.app/serve-action?orderId={orderId}";
+            string serveUrl = $"{GetFrontendBaseUrl()}/serve-action?orderId={orderId}";
             string qrCodeCloudinaryUrl = "";
 
             if (cloudinary != null)
@@ -194,7 +209,7 @@ namespace Buffet_Restaurant_API.Controllers
 
             // 🖨️ พิมพ์ตั๋วครัวเป็นรูปภาพ (ฟอนต์ Tahoma เดียวกับใบเสร็จหลังบ้าน) + QR ฝังในภาพเดียวกัน
             var printItems = items.Select(i => (i.MenuName, i.Quantity)).ToList();
-            _ = EscPosPrinterHelper.PrintKitchenTicket(order.OrderId, tableDisplay, order.OrderTime, printItems);
+            _ = EscPosPrinterHelper.PrintKitchenTicket(order.OrderId, tableDisplay, order.OrderTime, printItems, GetFrontendBaseUrl());
 
             return Ok(new
             {
@@ -212,16 +227,34 @@ namespace Buffet_Restaurant_API.Controllers
         [HttpPost("{orderId}/serve")]
         public async Task<IActionResult> ServeOrder(int orderId)
         {
-            var order = await _context.Orders.FirstOrDefaultAsync(o => o.Order_id == orderId);
-            if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
+            try
+            {
+                var order = await _context.Orders.FirstOrDefaultAsync(o => o.Order_id == orderId);
+                if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
 
-            order.Order_Status = "SERVED";
-            await _context.SaveChangesAsync();
+                order.Order_Status = "SERVED";
+                _context.Orders.Update(order);
+                await _context.SaveChangesAsync();
 
-            // 🔔 แจ้งครัวให้เอาการ์ดออกจากจอทันที
-            await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new { orderId = orderId, status = "SERVED" });
+                // 🔔 แจ้งครัวให้เอาการ์ดออกจากจอทันที
+                try
+                {
+                    await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new { orderId = orderId, status = "SERVED" });
+                }
+                catch (Exception hubEx)
+                {
+                    // ไม่ให้ SignalR พังจนทำให้ทั้ง request fail — สถานะใน DB อัปเดตสำเร็จไปแล้ว
+                    Console.WriteLine($"แจ้งเตือน SignalR ไม่สำเร็จ: {hubEx.Message}");
+                }
 
-            return Ok(new { message = "นำเสิร์ฟเรียบร้อยแล้ว", orderId = orderId, status = order.Order_Status });
+                return Ok(new { message = "นำเสิร์ฟเรียบร้อยแล้ว", orderId = orderId, status = order.Order_Status });
+            }
+            catch (Exception ex)
+            {
+                var detailedError = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+                Console.WriteLine($"ServeOrder ล้มเหลว order {orderId}: {detailedError}");
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการอัปเดตสถานะเสิร์ฟ", error = detailedError });
+            }
         }
 
         // 🔍 4. ดึงรายละเอียดออเดอร์
@@ -245,36 +278,53 @@ namespace Buffet_Restaurant_API.Controllers
 
             return Ok(orderDetails);
         }
+
+        // 📲 5. ดึงข้อมูลเสิร์ฟ + บังคับอัปเดตสถานะเป็น "กำลังนำเสิร์ฟ" ลง Database ทันทีที่สแกน
         [HttpGet("getServeInfo/{orderId}")]
         public async Task<IActionResult> GetServeInfo(int orderId)
         {
-            var order = await _context.Orders
-                .Where(o => o.Order_id == orderId)
-                .Select(o => new { OrderId = o.Order_id, OrderStatus = o.Order_Status, BillId = o.Bill_id })
-                .FirstOrDefaultAsync();
-
+            // ดึง Entity Orders มาตรงๆ เพื่อให้ EF Core ทำการ Track และอัปเดตข้อมูลได้
+            var order = await _context.Orders.FirstOrDefaultAsync(o => o.Order_id == orderId);
             if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
+
+            // อัปเดตสถานะเป็น "กำลังนำเสิร์ฟ" หากยังไม่ถูกเสิร์ฟ (SERVED)
+            if (order.Order_Status != "SERVED")
+            {
+                order.Order_Status = "กำลังนำเสิร์ฟ";
+                _context.Orders.Update(order);
+                await _context.SaveChangesAsync();
+
+                // 🔔 แจ้ง SignalR ไปยังระบบ Realtime
+                await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new { orderId = orderId, status = "กำลังนำเสิร์ฟ" });
+            }
 
             var tableNumbers = await (from gt in _context.GroupTables
                                       join t in _context.Tables on gt.Table_id equals t.Table_id
-                                      where gt.Bill_id == order.BillId
+                                      where gt.Bill_id == order.Bill_id
                                       select t.Table_Number).ToListAsync();
+
             string tableDisplay = tableNumbers.Any() ? string.Join(", ", tableNumbers) : "ไม่ระบุโต๊ะ";
 
             var items = await (from od in _context.Order_detail
                                join m in _context.Menus on od.menu_id equals m.Menu_id
                                where od.Order_id == orderId
-                               select new { MenuName = m.Menu_Name, Quantity = od.Quantity }).ToListAsync();
+                               select new
+                               {
+                                   MenuId = od.menu_id,
+                                   MenuName = m.Menu_Name,
+                                   Quantity = od.Quantity
+                               }).ToListAsync();
 
             return Ok(new
             {
-                OrderId = order.OrderId,
+                OrderId = order.Order_id,
                 TableNumber = tableDisplay,
-                OrderStatus = order.OrderStatus,
+                OrderStatus = order.Order_Status,
                 Items = items
             });
         }
-        // 💳 5. ดึงรายการชำระเงินตาม BillId
+
+        // 💳 6. ดึงรายการชำระเงินตาม BillId
         [HttpGet("getBillPricedItems/{billId}")]
         public async Task<IActionResult> GetBillPricedItems(int billId)
         {
@@ -315,17 +365,15 @@ namespace Buffet_Restaurant_API.Controllers
         }
     }
 
-    // 🖨️ Helper Class: พิมพ์ตั๋วครัวเป็น "รูปภาพ" (ฟอนต์ Tahoma เดียวกับใบเสร็จหลังบ้าน PrintController.cs)
-    // แทนที่การพิมพ์ข้อความ ESC/POS ดิบแบบเดิม เพื่อให้หน้าตาตรงกับใบเสร็จหลังบ้าน 100%
+    // 🖨️ Helper Class: พิมพ์ตั๋วครัวเป็น "รูปภาพ" โดยใช้ Layout เดียวกับ PrintController.cs
     public static class EscPosPrinterHelper
     {
         private static readonly string _printerIp = "127.0.0.1";
         private static readonly int _printerPort = 9100;
 
-        // 🖨️ พิมพ์ตั๋วครัว 1 ใบต่อ 1 ออเดอร์ แบบรูปภาพ: หัวร้าน / เลขที่ใบเสร็จ / วันที่ (พ.ศ.) / โต๊ะ / รายการอาหาร / QR
-        public static async Task PrintKitchenTicket(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items)
+        public static async Task PrintKitchenTicket(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items, string frontendBaseUrl = "https://buffet-restaurant-management-system.vercel.app")
         {
-            using SKBitmap bitmap = DrawTicketImage(orderId, tableNumber, orderTime, items);
+            using SKBitmap bitmap = DrawTicketImage(orderId, tableNumber, orderTime, items, frontendBaseUrl);
             byte[] imageBytes = ConvertBitmapToEscPosRaster(bitmap);
 
             try
@@ -336,12 +384,14 @@ namespace Buffet_Restaurant_API.Controllers
 
                 var bytes = new List<byte>();
                 bytes.AddRange(new byte[] { 0x1B, 0x40 });               // Reset
-                bytes.AddRange(imageBytes);                              // ภาพใบตั๋ว (รวม QR ในตัว)
-                bytes.AddRange(new byte[] { 0x1B, 0x64, 0x03 });         // Feed
+                bytes.AddRange(imageBytes);                              // ภาพใบตั๋วครัว
+                bytes.Add(0x0A);                                         // 🟢 เติม Line Feed ปิดท้ายบล็อกภาพ (แก้ไขอาการค้าง)
+                bytes.AddRange(new byte[] { 0x1B, 0x64, 0x03 });         // Feed 3 บรรทัด
                 bytes.AddRange(new byte[] { 0x1D, 0x56, 0x42, 0x00 });   // Cut
 
                 byte[] data = bytes.ToArray();
                 await stream.WriteAsync(data, 0, data.Length);
+                await stream.FlushAsync();
             }
             catch (Exception ex)
             {
@@ -349,11 +399,11 @@ namespace Buffet_Restaurant_API.Controllers
             }
         }
 
-        // 🎨 วาดตั๋วครัวลง Bitmap ด้วยฟอนต์ Tahoma เดียวกับ PrintController.cs
-        private static SKBitmap DrawTicketImage(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items)
+        private static SKBitmap DrawTicketImage(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items, string frontendBaseUrl)
         {
+            // 🟢 ใช้ขนาดเดียวกับ PrintController.cs (576px) ที่พิมพ์เต็มกระดาษได้ปกติอยู่แล้ว
             int width = 576;
-            int estimatedHeight = 700 + items.Count * 40;
+            int estimatedHeight = 1000;
 
             SKBitmap bitmap = new SKBitmap(width, estimatedHeight);
             using SKCanvas canvas = new SKCanvas(bitmap);
@@ -364,12 +414,13 @@ namespace Buffet_Restaurant_API.Controllers
             SKTypeface boldTypeface = SKTypeface.FromFamilyName("Tahoma", SKFontStyleWeight.Bold, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright)
                                  ?? SKTypeface.Default;
 
-            using SKFont fontNormal = new SKFont(typeface, 22);
-            using SKFont fontHeader = new SKFont(boldTypeface, 36);
+            using SKFont fontNormal = new SKFont(typeface, 18);
+            using SKFont fontBold = new SKFont(boldTypeface, 20);
+            using SKFont fontHeader = new SKFont(boldTypeface, 26);
 
             using SKPaint paint = new SKPaint { Color = SKColors.Black, IsAntialias = true };
 
-            float y = 50;
+            float y = 35;
             float leftMargin = 15;
             float rightMargin = width - 15;
 
@@ -377,7 +428,7 @@ namespace Buffet_Restaurant_API.Controllers
             void DrawTextRight(string text, float targetY, SKFont font) => canvas.DrawText(text, rightMargin, targetY, SKTextAlign.Right, font, paint);
             void DrawTextCenter(string text, float targetY, SKFont font) => canvas.DrawText(text, width / 2f, targetY, SKTextAlign.Center, font, paint);
 
-            void DrawRow(string left, string right, SKFont? font = null, float lineSpacing = 38)
+            void DrawRow(string left, string right, SKFont? font = null, float lineSpacing = 30)
             {
                 var f = font ?? fontNormal;
                 DrawTextLeft(left, y, f);
@@ -390,48 +441,51 @@ namespace Buffet_Restaurant_API.Controllers
                 using var linePaint = new SKPaint
                 {
                     Color = SKColors.Gray,
-                    StrokeWidth = 2,
-                    PathEffect = SKPathEffect.CreateDash(new float[] { 8, 4 }, 0)
+                    StrokeWidth = 1.5f,
+                    PathEffect = SKPathEffect.CreateDash(new float[] { 6, 3 }, 0)
                 };
-                canvas.DrawLine(leftMargin, y - 10, rightMargin, y - 10, linePaint);
-                y += 15;
+                canvas.DrawLine(leftMargin, y - 8, rightMargin, y - 8, linePaint);
+                y += 12;
             }
 
-            // --- HEADER ---
+            // --- HEADER: ชื่อร้าน ---
             DrawTextCenter("ร้าน BUFFET", y, fontHeader);
-            y += 50;
+            y += 35;
             DrawDivider();
+            y += 5;
 
-            // --- INFO --- (แปลงปีเป็น พ.ศ. ให้ตรงกับใบเสร็จจริง)
-            string thaiDateStr = $"{orderTime:dd/MM}/{orderTime.Year + 543} {orderTime:HH:mm:ss}";
-            DrawRow("เลขที่ใบเสร็จ:", $"{orderId:D5}");
-            DrawRow("วันที่:", thaiDateStr);
+            // --- INFO ---
+            DrawRow("เลขที่ใบเสร็จ:", $"B{orderId:D5}");
+            DrawRow("วันที่:", orderTime.ToString("dd/MM/yyyy HH:mm:ss"));
             DrawRow("โต๊ะ:", tableNumber);
-            DrawDivider();
-            y += 10;
 
-            // --- รายการอาหาร ---
+            DrawDivider();
+            y += 5;
+
+            // --- ITEMS: "ชื่อเมนู:   จำนวน" (ไม่ใช้ตัวหนา ไม่มี "x" นำหน้า) ---
             foreach (var item in items)
-                DrawRow(item.Name + ":", item.Qty.ToString());
+            {
+                DrawRow($"{item.Name}:", $"{item.Qty}");
+            }
 
             DrawDivider();
-            y += 20;
+            y += 5;
 
-            // --- QR (ฝังเป็นรูปในภาพเดียวกันเลย ไม่ต้องยิงคำสั่ง raster แยก) ---
-            string serveUrl = $"https://buffet-restaurant-management-system.vercel.app/serve-action?orderId={orderId}";
+            // --- QR CODE ---
+            string serveUrl = $"{frontendBaseUrl}/serve-action?orderId={orderId}";
             using (var qrGen = new QRCodeGenerator())
             {
                 var qrData = qrGen.CreateQrCode(serveUrl, QRCodeGenerator.ECCLevel.Q);
                 var qrPng = new PngByteQRCode(qrData);
-                byte[] qrBytes = qrPng.GetGraphic(6);
+                byte[] qrBytes = qrPng.GetGraphic(5);
 
                 using SKBitmap qrBitmap = SKBitmap.Decode(qrBytes);
-                int qrSize = 260;
+                int qrSize = 180;
                 float qrX = (width - qrSize) / 2f;
                 var srcRect = new SKRect(0, 0, qrBitmap.Width, qrBitmap.Height);
                 var destRect = new SKRect(qrX, y, qrX + qrSize, y + qrSize);
                 canvas.DrawBitmap(qrBitmap, srcRect, destRect, SKSamplingOptions.Default, paint);
-                y += qrSize + 20;
+                y += qrSize + 15;
             }
 
             int finalHeight = (int)y;
@@ -444,7 +498,6 @@ namespace Buffet_Restaurant_API.Controllers
             return cropped;
         }
 
-        // 🖼️ แปลง Bitmap เป็น ESC/POS raster bit image (GS v 0) แบบเดียวกับ PrintController.cs
         private static byte[] ConvertBitmapToEscPosRaster(SKBitmap bitmap)
         {
             int width = bitmap.Width;
@@ -482,6 +535,5 @@ namespace Buffet_Restaurant_API.Controllers
 
             return bytes.ToArray();
         }
-
     }
 }
