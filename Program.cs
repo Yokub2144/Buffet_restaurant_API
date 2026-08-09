@@ -108,6 +108,12 @@ var connectionString = connectionTemplate?
     .Replace("{DB_USERNAME}", Environment.GetEnvironmentVariable("DB_USERNAME"))
     .Replace("{DB_PASSWORD}", Environment.GetEnvironmentVariable("DB_PASSWORD"));
 
+
+if (!string.IsNullOrEmpty(connectionString) && !connectionString.Contains("Guid Format", StringComparison.OrdinalIgnoreCase))
+{
+    connectionString += (connectionString.TrimEnd().EndsWith(";") ? "" : ";") + "Guid Format=None;";
+}
+
 builder.Services.AddDbContext<restaurantDbContext>(options =>
     options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
 
