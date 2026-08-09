@@ -272,53 +272,64 @@ namespace Buffet_Restaurant_API.Controllers
         }
 
         // 📲 5. ดึงข้อมูลเสิร์ฟ + บันทึกลง DB เปลี่ยนสถานะเป็น "กำลังนำเสิร์ฟ" ทันทีที่สแกน
+        // หมายเหตุ: endpoint นี้มี side-effect (เปลี่ยนสถานะ) จึงรองรับ POST เป็นหลัก
+        // ยังคงรับ GET ไว้ชั่วคราวเพื่อความเข้ากันได้กับโค้ด frontend เดิม — แนะนำให้ frontend ย้ายไปใช้ POST แล้วค่อยลบ [HttpGet] ทิ้งภายหลัง
         [HttpGet("getServeInfo/{orderId}")]
+        [HttpPost("getServeInfo/{orderId}")]
         public async Task<IActionResult> GetServeInfo(int orderId)
         {
-            var order = await _context.Orders.FirstOrDefaultAsync(o => o.Order_id == orderId);
-            if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
-
-            // 🟢 บันทึกลง DB ทันทีเมื่อสแกนเข้ามา
-            if (order.Order_Status != "SERVED" && order.Order_Status != "กำลังนำเสิร์ฟ")
+            try
             {
-                order.Order_Status = "กำลังนำเสิร์ฟ";
-                _context.Entry(order).State = EntityState.Modified;
-                await _context.SaveChangesAsync(); // บังคับเขียนลง DB ทันที
+                var order = await _context.Orders.FirstOrDefaultAsync(o => o.Order_id == orderId);
+                if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
 
-                try
+                // 🟢 บันทึกลง DB ทันทีเมื่อสแกนเข้ามา
+                if (order.Order_Status != "SERVED" && order.Order_Status != "กำลังนำเสิร์ฟ")
                 {
-                    await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new { orderId = orderId, status = "กำลังนำเสิร์ฟ" });
+                    order.Order_Status = "กำลังนำเสิร์ฟ";
+                    _context.Entry(order).State = EntityState.Modified;
+                    await _context.SaveChangesAsync(); // บังคับเขียนลง DB ทันที
+
+                    try
+                    {
+                        await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new { orderId = orderId, status = "กำลังนำเสิร์ฟ" });
+                    }
+                    catch (Exception hubEx)
+                    {
+                        Console.WriteLine($"SignalR Error: {hubEx.Message}");
+                    }
                 }
-                catch (Exception hubEx)
+
+                var tableNumbers = await (from gt in _context.GroupTables
+                                          join t in _context.Tables on gt.Table_id equals t.Table_id
+                                          where gt.Bill_id == order.Bill_id
+                                          select t.Table_Number).ToListAsync();
+
+                string tableDisplay = tableNumbers.Any() ? string.Join(", ", tableNumbers) : "ไม่ระบุโต๊ะ";
+
+                var items = await (from od in _context.Order_detail
+                                   join m in _context.Menus on od.menu_id equals m.Menu_id
+                                   where od.Order_id == orderId
+                                   select new
+                                   {
+                                       MenuId = od.menu_id,
+                                       MenuName = m.Menu_Name,
+                                       Quantity = od.Quantity
+                                   }).ToListAsync();
+
+                return Ok(new
                 {
-                    Console.WriteLine($"SignalR Error: {hubEx.Message}");
-                }
+                    OrderId = order.Order_id,
+                    TableNumber = tableDisplay,
+                    OrderStatus = order.Order_Status,
+                    Items = items
+                });
             }
-
-            var tableNumbers = await (from gt in _context.GroupTables
-                                      join t in _context.Tables on gt.Table_id equals t.Table_id
-                                      where gt.Bill_id == order.Bill_id
-                                      select t.Table_Number).ToListAsync();
-
-            string tableDisplay = tableNumbers.Any() ? string.Join(", ", tableNumbers) : "ไม่ระบุโต๊ะ";
-
-            var items = await (from od in _context.Order_detail
-                               join m in _context.Menus on od.menu_id equals m.Menu_id
-                               where od.Order_id == orderId
-                               select new
-                               {
-                                   MenuId = od.menu_id,
-                                   MenuName = m.Menu_Name,
-                                   Quantity = od.Quantity
-                               }).ToListAsync();
-
-            return Ok(new
+            catch (Exception ex)
             {
-                OrderId = order.Order_id,
-                TableNumber = tableDisplay,
-                OrderStatus = order.Order_Status,
-                Items = items
-            });
+                var detailedError = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการดึงข้อมูล/อัปเดตสถานะเสิร์ฟ", error = detailedError });
+            }
         }
 
         // 💳 6. ดึงรายการชำระเงินตาม BillId
