@@ -228,7 +228,7 @@ namespace Buffet_Restaurant_API.Controllers
                 if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
 
                 order.Order_Status = "SERVED";
-                _context.Orders.Update(order);
+                _context.Entry(order).State = EntityState.Modified;
                 await _context.SaveChangesAsync();
 
                 try
@@ -245,7 +245,6 @@ namespace Buffet_Restaurant_API.Controllers
             catch (Exception ex)
             {
                 var detailedError = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
-                Console.WriteLine($"ServeOrder ล้มเหลว order {orderId}: {detailedError}");
                 return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการอัปเดตสถานะเสิร์ฟ", error = detailedError });
             }
         }
@@ -272,22 +271,28 @@ namespace Buffet_Restaurant_API.Controllers
             return Ok(orderDetails);
         }
 
-        // 📲 5. ดึงข้อมูลเสิร์ฟ + อัปเดตสถานะเป็น "กำลังนำเสิร์ฟ" ทันทีที่สแกน
+        // 📲 5. ดึงข้อมูลเสิร์ฟ + บันทึกลง DB เปลี่ยนสถานะเป็น "กำลังนำเสิร์ฟ" ทันทีที่สแกน
         [HttpGet("getServeInfo/{orderId}")]
         public async Task<IActionResult> GetServeInfo(int orderId)
         {
             var order = await _context.Orders.FirstOrDefaultAsync(o => o.Order_id == orderId);
             if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
 
-            // 🟢 อัปเดตเฉพาะเมื่อยังไม่ถูกเสิร์ฟ และยังไม่ได้อยู่ในสถานะกำลังนำเสิร์ฟ
+            // 🟢 บันทึกลง DB ทันทีเมื่อสแกนเข้ามา
             if (order.Order_Status != "SERVED" && order.Order_Status != "กำลังนำเสิร์ฟ")
             {
                 order.Order_Status = "กำลังนำเสิร์ฟ";
-                _context.Orders.Update(order);
-                await _context.SaveChangesAsync();
+                _context.Entry(order).State = EntityState.Modified;
+                await _context.SaveChangesAsync(); // บังคับเขียนลง DB ทันที
 
-                // 🔔 แจ้ง SignalR
-                await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new { orderId = orderId, status = "กำลังนำเสิร์ฟ" });
+                try
+                {
+                    await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new { orderId = orderId, status = "กำลังนำเสิร์ฟ" });
+                }
+                catch (Exception hubEx)
+                {
+                    Console.WriteLine($"SignalR Error: {hubEx.Message}");
+                }
             }
 
             var tableNumbers = await (from gt in _context.GroupTables
@@ -357,7 +362,6 @@ namespace Buffet_Restaurant_API.Controllers
         }
     }
 
-    // 🖨️ Helper Class: พิมพ์ตั๋วครัวเป็น "รูปภาพ"
     public static class EscPosPrinterHelper
     {
         private static readonly string _printerIp = "127.0.0.1";
@@ -439,13 +443,11 @@ namespace Buffet_Restaurant_API.Controllers
                 y += 12;
             }
 
-            // --- HEADER ---
             DrawTextCenter("ร้าน BUFFET", y, fontHeader);
             y += 35;
             DrawDivider();
             y += 5;
 
-            // --- INFO ---
             DrawRow("เลขที่ใบเสร็จ:", $"B{orderId:D5}");
             DrawRow("วันที่:", orderTime.ToString("dd/MM/yyyy HH:mm:ss"));
             DrawRow("โต๊ะ:", tableNumber);
@@ -453,7 +455,6 @@ namespace Buffet_Restaurant_API.Controllers
             DrawDivider();
             y += 5;
 
-            // --- ITEMS ---
             foreach (var item in items)
             {
                 DrawRow($"{item.Name}:", $"{item.Qty}");
@@ -462,7 +463,6 @@ namespace Buffet_Restaurant_API.Controllers
             DrawDivider();
             y += 5;
 
-            // --- QR CODE ---
             string serveUrl = $"{frontendBaseUrl}/serve-action?orderId={orderId}";
             using (var qrGen = new QRCodeGenerator())
             {
