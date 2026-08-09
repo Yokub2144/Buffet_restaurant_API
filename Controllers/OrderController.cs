@@ -33,9 +33,6 @@ namespace Buffet_Restaurant_API.Controllers
             _configuration = configuration;
         }
 
-        // 🟢 อ่าน base URL ของหน้าเว็บจาก appsettings ตาม environment (local ใช้ localhost, production ใช้ vercel)
-        // ตั้งค่าใน appsettings.Development.json => "FrontendBaseUrl": "http://localhost:4200"
-        // ตั้งค่าใน appsettings.json (production)   => "FrontendBaseUrl": "https://buffet-restaurant-management-system.vercel.app"
         private string GetFrontendBaseUrl()
         {
             return _configuration["FrontendBaseUrl"] ?? "https://buffet-restaurant-management-system.vercel.app";
@@ -120,7 +117,7 @@ namespace Buffet_Restaurant_API.Controllers
 
                 await transaction.CommitAsync();
 
-                // 🔔 สะกิด SignalR แจ้งเตือนครัว — ยิงเป็น Order_id (แยกใบต่อรอบสั่ง)
+                // 🔔 สะกิด SignalR แจ้งเตือนครัว
                 await _hubContext.Clients.All.SendAsync("NewKitchenOrder", newOrder.Order_id);
 
                 return Ok(new
@@ -139,7 +136,7 @@ namespace Buffet_Restaurant_API.Controllers
             }
         }
 
-        // 🍳 2. ดึงสลิปใบบิลครัว (ต่อ 1 ออเดอร์) + เจน QR Code ส่งขึ้น Cloudinary + พิมพ์ออก Simulator 9100
+        // 🍳 2. ดึงสลิปใบบิลครัว + เจน QR Code
         [HttpGet("getKitchenTicket/{orderId}")]
         public async Task<IActionResult> GetKitchenTicket(int orderId, [FromServices] Cloudinary cloudinary = null)
         {
@@ -173,7 +170,6 @@ namespace Buffet_Restaurant_API.Controllers
                                    Quantity = od.Quantity
                                }).ToListAsync();
 
-            // 📲 สร้าง QR Code Cloudinary URL (สำหรับแสดงบนหน้าเว็บ)
             string serveUrl = $"{GetFrontendBaseUrl()}/serve-action?orderId={orderId}";
             string qrCodeCloudinaryUrl = "";
 
@@ -207,7 +203,6 @@ namespace Buffet_Restaurant_API.Controllers
                 catch { }
             }
 
-            // 🖨️ พิมพ์ตั๋วครัวเป็นรูปภาพ (ฟอนต์ Tahoma เดียวกับใบเสร็จหลังบ้าน) + QR ฝังในภาพเดียวกัน
             var printItems = items.Select(i => (i.MenuName, i.Quantity)).ToList();
             _ = EscPosPrinterHelper.PrintKitchenTicket(order.OrderId, tableDisplay, order.OrderTime, printItems, GetFrontendBaseUrl());
 
@@ -222,7 +217,7 @@ namespace Buffet_Restaurant_API.Controllers
             });
         }
 
-        // 📲 3. Endpoint สแกนนำเสิร์ฟ (ต่อ 1 ออเดอร์)
+        // 📲 3. Endpoint พนักงานกดปุ่มยืนยันนำเสิร์ฟเสร็จสิ้น (ถึงโต๊ะแล้ว)
         [HttpGet("{orderId}/serve")]
         [HttpPost("{orderId}/serve")]
         public async Task<IActionResult> ServeOrder(int orderId)
@@ -236,14 +231,12 @@ namespace Buffet_Restaurant_API.Controllers
                 _context.Orders.Update(order);
                 await _context.SaveChangesAsync();
 
-                // 🔔 แจ้งครัวให้เอาการ์ดออกจากจอทันที
                 try
                 {
                     await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new { orderId = orderId, status = "SERVED" });
                 }
                 catch (Exception hubEx)
                 {
-                    // ไม่ให้ SignalR พังจนทำให้ทั้ง request fail — สถานะใน DB อัปเดตสำเร็จไปแล้ว
                     Console.WriteLine($"แจ้งเตือน SignalR ไม่สำเร็จ: {hubEx.Message}");
                 }
 
@@ -279,22 +272,21 @@ namespace Buffet_Restaurant_API.Controllers
             return Ok(orderDetails);
         }
 
-        // 📲 5. ดึงข้อมูลเสิร์ฟ + บังคับอัปเดตสถานะเป็น "กำลังนำเสิร์ฟ" ลง Database ทันทีที่สแกน
+        // 📲 5. ดึงข้อมูลเสิร์ฟ + อัปเดตสถานะเป็น "กำลังนำเสิร์ฟ" ทันทีที่สแกน
         [HttpGet("getServeInfo/{orderId}")]
         public async Task<IActionResult> GetServeInfo(int orderId)
         {
-            // ดึง Entity Orders มาตรงๆ เพื่อให้ EF Core ทำการ Track และอัปเดตข้อมูลได้
             var order = await _context.Orders.FirstOrDefaultAsync(o => o.Order_id == orderId);
             if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
 
-            // อัปเดตสถานะเป็น "กำลังนำเสิร์ฟ" หากยังไม่ถูกเสิร์ฟ (SERVED)
-            if (order.Order_Status != "SERVED")
+            // 🟢 อัปเดตเฉพาะเมื่อยังไม่ถูกเสิร์ฟ และยังไม่ได้อยู่ในสถานะกำลังนำเสิร์ฟ
+            if (order.Order_Status != "SERVED" && order.Order_Status != "กำลังนำเสิร์ฟ")
             {
                 order.Order_Status = "กำลังนำเสิร์ฟ";
                 _context.Orders.Update(order);
                 await _context.SaveChangesAsync();
 
-                // 🔔 แจ้ง SignalR ไปยังระบบ Realtime
+                // 🔔 แจ้ง SignalR
                 await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new { orderId = orderId, status = "กำลังนำเสิร์ฟ" });
             }
 
@@ -365,7 +357,7 @@ namespace Buffet_Restaurant_API.Controllers
         }
     }
 
-    // 🖨️ Helper Class: พิมพ์ตั๋วครัวเป็น "รูปภาพ" โดยใช้ Layout เดียวกับ PrintController.cs
+    // 🖨️ Helper Class: พิมพ์ตั๋วครัวเป็น "รูปภาพ"
     public static class EscPosPrinterHelper
     {
         private static readonly string _printerIp = "127.0.0.1";
@@ -385,7 +377,7 @@ namespace Buffet_Restaurant_API.Controllers
                 var bytes = new List<byte>();
                 bytes.AddRange(new byte[] { 0x1B, 0x40 });               // Reset
                 bytes.AddRange(imageBytes);                              // ภาพใบตั๋วครัว
-                bytes.Add(0x0A);                                         // 🟢 เติม Line Feed ปิดท้ายบล็อกภาพ (แก้ไขอาการค้าง)
+                bytes.Add(0x0A);                                         // Line Feed
                 bytes.AddRange(new byte[] { 0x1B, 0x64, 0x03 });         // Feed 3 บรรทัด
                 bytes.AddRange(new byte[] { 0x1D, 0x56, 0x42, 0x00 });   // Cut
 
@@ -401,7 +393,6 @@ namespace Buffet_Restaurant_API.Controllers
 
         private static SKBitmap DrawTicketImage(int orderId, string tableNumber, DateTime orderTime, List<(string Name, int Qty)> items, string frontendBaseUrl)
         {
-            // 🟢 ใช้ขนาดเดียวกับ PrintController.cs (576px) ที่พิมพ์เต็มกระดาษได้ปกติอยู่แล้ว
             int width = 576;
             int estimatedHeight = 1000;
 
@@ -448,7 +439,7 @@ namespace Buffet_Restaurant_API.Controllers
                 y += 12;
             }
 
-            // --- HEADER: ชื่อร้าน ---
+            // --- HEADER ---
             DrawTextCenter("ร้าน BUFFET", y, fontHeader);
             y += 35;
             DrawDivider();
@@ -462,7 +453,7 @@ namespace Buffet_Restaurant_API.Controllers
             DrawDivider();
             y += 5;
 
-            // --- ITEMS: "ชื่อเมนู:   จำนวน" (ไม่ใช้ตัวหนา ไม่มี "x" นำหน้า) ---
+            // --- ITEMS ---
             foreach (var item in items)
             {
                 DrawRow($"{item.Name}:", $"{item.Qty}");
