@@ -322,6 +322,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             {
                 return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการอัปเดตประเภทการชำระเงิน", error = ex.Message });
             }
+
         }
     }
 }
