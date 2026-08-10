@@ -48,16 +48,35 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             var qrResult = await _promptPayService.GeneratePromptPayQr(booking.Deposit_Amount);
 
             Console.WriteLine($"=== QR RESULT: {qrResult} ===");
-            var parsed = JsonSerializer.Deserialize<JsonElement>(qrResult);
-            var transactionId = parsed.GetProperty("data").GetProperty("transactionId").GetString();
-            var amount = parsed.GetProperty("data").GetProperty("amount").GetString();
-            return Ok(new
+
+            if (string.IsNullOrWhiteSpace(qrResult) || qrResult.StartsWith("Error"))
             {
-                qr_data = qrResult,
-                amount_pay = amount,
-                booking_id = booking.Booking_id,
-                transaction_id = transactionId,
-            });
+                return BadRequest(new
+                {
+                    message = "สร้าง QR Code ไม่สำเร็จ (ติดปัญหาการยืนยันตัวตนกับระบบชำระเงิน)",
+                    detail = qrResult
+                });
+            }
+
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<JsonElement>(qrResult);
+                var dataProp = parsed.GetProperty("data");
+                var transactionId = dataProp.GetProperty("transactionId").GetString();
+                var amount = dataProp.GetProperty("amount").GetString();
+
+                return Ok(new
+                {
+                    qr_data = qrResult,
+                    amount_pay = amount,
+                    booking_id = booking.Booking_id,
+                    transaction_id = transactionId,
+                });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = "อ่านข้อมูล QR Code ไม่สำเร็จ", detail = ex.Message, rawData = qrResult });
+            }
         }
         [HttpPost("check-status")]
         public async Task<IActionResult> CheckStatus([FromBody] string transactionId)
