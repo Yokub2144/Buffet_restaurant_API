@@ -21,63 +21,21 @@ namespace Buffet_Restaurant_API.Controllers
         [HttpPost("add-item")]
         public async Task<IActionResult> AddItemToCart([FromBody] AddToCartDtos request)
         {
-            Cart? cart;
 
-            if (request.Booking_id.HasValue)
-            {
-                // ===== โหมดสั่งอาหารล่วงหน้า (ผูกกับ Booking) =====
-                var booking = await _context.Bookings
-                    .FirstOrDefaultAsync(b => b.Booking_id == request.Booking_id.Value);
-
-                if (booking == null)
-                {
-                    return NotFound(new { message = "ไม่พบข้อมูลการจอง" });
-                }
-
-                if (booking.Booking_Status != "Confirmed")
-                {
-                    return BadRequest(new
-                    {
-                        message = $"ไม่สามารถสั่งอาหารล่วงหน้าได้ เนื่องจากสถานะการจองคือ '{booking.Booking_Status}' (ต้องเป็น 'ติดจอง' เท่านั้น)"
-                    });
-                }
-
-                cart = await _context.Carts
-                                     .Where(c => c.Booking_id == request.Booking_id.Value)
+            var cart = await _context.Carts
+                                     .Where(c => c.Table_id == request.TableId)
                                      .OrderByDescending(c => c.Created_at)
                                      .FirstOrDefaultAsync();
-
-                if (cart == null)
-                {
-                    cart = new Cart
-                    {
-                        Table_id = request.TableId, // เก็บไว้อ้างอิงเฉยๆ (ไม่ใช้หา cart ในโหมดนี้)
-                        Booking_id = request.Booking_id,
-                        Created_at = DateTime.Now
-                    };
-                    _context.Carts.Add(cart);
-                    await _context.SaveChangesAsync();
-                }
-            }
-            else
+            if (cart == null)
             {
-                // ===== โหมดสั่งหน้าร้าน (ผูกกับ Table) เดิม =====
-                cart = await _context.Carts
-                                     .Where(c => c.Table_id == request.TableId && c.Booking_id == null)
-                                     .OrderByDescending(c => c.Created_at)
-                                     .FirstOrDefaultAsync();
-
-                if (cart == null)
+                cart = new Cart
                 {
-                    cart = new Cart
-                    {
-                        Table_id = request.TableId,
-                        Booking_id = null,
-                        Created_at = DateTime.Now
-                    };
-                    _context.Carts.Add(cart);
-                    await _context.SaveChangesAsync();
-                }
+                    Table_id = request.TableId,
+                    Booking_id = null,
+                    Created_at = DateTime.Now
+                };
+                _context.Carts.Add(cart);
+                await _context.SaveChangesAsync();
             }
 
             //จัดการรายการอาหาร
@@ -134,37 +92,6 @@ namespace Buffet_Restaurant_API.Controllers
         {
             var cart = await _context.Carts
                                      .Where(c => c.Table_id == tableId)
-                                     .OrderByDescending(c => c.Created_at)
-                                     .FirstOrDefaultAsync();
-
-            if (cart == null) return Ok(new { items = new List<object>() });
-
-            var items = await _context.CartItems
-                                      .Where(ci => ci.Cart_id == cart.Cart_id)
-                                      .Join(_context.Menus,
-                                            ci => ci.Menu_id,
-                                            m => m.Menu_id,
-                                            (ci, m) => new
-                                            {
-                                                id = ci.Cartitem_id,
-                                                menuId = m.Menu_id,
-                                                name = m.Menu_Name,
-                                                price = m.Price ?? 0,
-                                                quantity = ci.Quantity,
-                                                image = m.Menu_Image,
-                                                selected = true
-                                            })
-                                      .ToListAsync();
-
-            return Ok(new { cartId = cart.Cart_id, items = items });
-        }
-
-        //  ดึงตะกร้า (โหมดสั่งล่วงหน้า - ผูกกับ Booking)
-        [HttpGet("get-items-by-booking/{bookingId}")]
-        public async Task<IActionResult> GetCartItemsByBooking(int bookingId)
-        {
-            var cart = await _context.Carts
-                                     .Where(c => c.Booking_id == bookingId)
                                      .OrderByDescending(c => c.Created_at)
                                      .FirstOrDefaultAsync();
 
