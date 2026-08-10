@@ -227,13 +227,15 @@ namespace Buffet_Restaurant_API.Controllers
                 var order = await _context.Orders.FirstOrDefaultAsync(o => o.Order_id == orderId);
                 if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
 
-                order.Order_Status = "SERVED";
+                // 🟢 ต้องใช้ค่าที่ตรงกับ enum ที่อนุญาตในคอลัมน์ Order_Status เท่านั้น
+                // ('รับออเดอร์','กำลังจัดเตรียมอาหาร','กำลังนำเสิร์ฟ','เสร็จสิ้น') — "SERVED" ไม่ใช่ค่าที่ถูกต้อง
+                order.Order_Status = "เสร็จสิ้น";
                 _context.Entry(order).State = EntityState.Modified;
                 await _context.SaveChangesAsync();
 
                 try
                 {
-                    await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new { orderId = orderId, status = "SERVED" });
+                    await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new { orderId = orderId, status = "เสร็จสิ้น" });
                 }
                 catch (Exception hubEx)
                 {
@@ -283,8 +285,8 @@ namespace Buffet_Restaurant_API.Controllers
                 var order = await _context.Orders.FirstOrDefaultAsync(o => o.Order_id == orderId);
                 if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
 
-                // 🟢 บันทึกลง DB ทันทีเมื่อสแกนเข้ามา
-                if (order.Order_Status != "SERVED" && order.Order_Status != "กำลังนำเสิร์ฟ")
+                // 🟢 บันทึกลง DB ทันทีเมื่อสแกนเข้ามา (ยกเว้นออเดอร์ที่เสิร์ฟเสร็จหรือกำลังนำเสิร์ฟอยู่แล้ว)
+                if (order.Order_Status != "เสร็จสิ้น" && order.Order_Status != "กำลังนำเสิร์ฟ")
                 {
                     order.Order_Status = "กำลังนำเสิร์ฟ";
                     _context.Entry(order).State = EntityState.Modified;
