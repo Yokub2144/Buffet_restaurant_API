@@ -12,7 +12,7 @@ namespace Buffet_Restaurant_API.Models
         public int Cart_id { get; set; }
 
         [Column("Table_id")]
-        public int Table_id { get; set; }
+        public int? Table_id { get; set; }
 
         [Column("Booking_id")]
         public int? Booking_id { get; set; }
