@@ -130,5 +130,80 @@ namespace Buffet_Restaurant_API.Controllers
 
             return Ok(response);
         }
+        [HttpGet("cashier-stats")]
+        public async Task<ActionResult<CashierDashboardStatsDto>> GetCashierDashboardStats([FromQuery] string type = "daily")
+        {
+            try
+            {
+                using var connection = _context.Database.GetDbConnection();
+
+                if (connection.State != System.Data.ConnectionState.Open)
+                {
+                    await connection.OpenAsync();
+                }
+
+                // 🟢 1. กำหนดเงื่อนไขเวลาตามปุ่ม (รายวัน, รายเดือน, รายปี)
+                string paymentDateCondition = type.ToLower() switch
+                {
+                    "monthly" => "YEAR(PaymentDateTime) = YEAR(CURDATE()) AND MONTH(PaymentDateTime) = MONTH(CURDATE())",
+                    "yearly" => "YEAR(PaymentDateTime) = YEAR(CURDATE())",
+                    _ => "DATE(PaymentDateTime) = CURDATE()" // daily เป็น default
+                };
+
+                // เพิ่ม Alias 'b.' ให้กับ Created_at เพื่อระบุว่าเป็นคอลัมน์ของตาราง bill ป้องกันความสับสนเมื่อใช้ JOIN
+                string billDateCondition = type.ToLower() switch
+                {
+                    "monthly" => "YEAR(b.Created_at) = YEAR(CURDATE()) AND MONTH(b.Created_at) = MONTH(CURDATE())",
+                    "yearly" => "YEAR(b.Created_at) = YEAR(CURDATE())",
+                    _ => "DATE(b.Created_at) = CURDATE()"
+                };
+
+                // 🟢 2. ดึงข้อมูลรายรับสุทธิ, เงินสด, โอน จากตาราง Payment
+                var sqlPayment = $@"
+                SELECT 
+                    COALESCE(SUM(Amount), 0) AS NetRevenue,
+                    COALESCE(SUM(CASE WHEN PaymentMethod = 'เงินสด' THEN Amount ELSE 0 END), 0) AS CashAmount,
+                    COALESCE(SUM(CASE WHEN PaymentMethod = 'โอน' THEN Amount ELSE 0 END), 0) AS TransferAmount
+                FROM Payment
+                WHERE {paymentDateCondition}";
+
+                // 🟢 3. ดึงข้อมูลจำนวนลูกค้า, ค่าปรับ และ ส่วนลด (JOIN ตาราง Discount)
+                var sqlBill = $@"
+                SELECT 
+                    COALESCE(SUM(b.NumAdults), 0) AS TotalAdults,
+                    COALESCE(SUM(b.NumChildren), 0) AS TotalChildren,
+                    COALESCE(SUM(b.Fine_Kg), 0) AS TotalFines,
+                    COALESCE(SUM(d.Discount_amount), 0) AS TotalDiscount
+                FROM bill b
+                LEFT JOIN Discount d ON b.Discount_id = d.Discount_id
+                WHERE {billDateCondition}";
+
+                // Execute Queries
+                var paymentStats = await connection.QueryFirstOrDefaultAsync(sqlPayment);
+                var billStats = await connection.QueryFirstOrDefaultAsync(sqlBill);
+
+                // 🟢 4. แมปข้อมูลใส่ DTO เพื่อส่งกลับไปยังหน้าเว็บ
+                var result = new CashierDashboardStatsDto
+                {
+                    NetRevenue = paymentStats?.NetRevenue != null ? Convert.ToDecimal(paymentStats.NetRevenue) : 0m,
+                    CashAmount = paymentStats?.CashAmount != null ? Convert.ToDecimal(paymentStats.CashAmount) : 0m,
+                    TransferAmount = paymentStats?.TransferAmount != null ? Convert.ToDecimal(paymentStats.TransferAmount) : 0m,
+                    
+                    TotalAdults = billStats?.TotalAdults != null ? Convert.ToInt32(billStats.TotalAdults) : 0,
+                    TotalChildren = billStats?.TotalChildren != null ? Convert.ToInt32(billStats.TotalChildren) : 0,
+                    TotalFines = billStats?.TotalFines != null ? Convert.ToDecimal(billStats.TotalFines) : 0m,
+                    
+                    // เพิ่มการส่งค่าส่วนลดที่ได้จากการ JOIN
+                    TotalDiscount = billStats?.TotalDiscount != null ? Convert.ToDecimal(billStats.TotalDiscount) : 0m 
+                };
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Cashier Dashboard Stats Error]: {ex.Message}");
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
     }
 }

@@ -28,4 +28,14 @@ namespace Buffet_Restaurant_API.Dtos
         public string PeakTimeSlot { get; set; } = "-";
         public object? PeakTimeCustomers { get; set; }
     }
+    public class CashierDashboardStatsDto
+    {
+        public decimal NetRevenue { get; set; }
+        public int TotalAdults { get; set; }
+        public int TotalChildren { get; set; }
+        public decimal TotalDiscount { get; set; }
+        public decimal TotalFines { get; set; }
+        public decimal CashAmount { get; set; }
+        public decimal TransferAmount { get; set; }
+    }
 }

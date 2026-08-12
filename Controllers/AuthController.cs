@@ -39,13 +39,13 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             {
                 return Unauthorized(new { Message = "ไม่พบข้อมูลผู้ใช้งาน หรือเบอร์โทรศัพท์ไม่ถูกต้อง" });
             }
-            try 
+            try
             {
                 if (!BCrypt.Net.BCrypt.Verify(loginData.Password, employee.Password))
                 {
                     return Unauthorized(new { Message = "รหัสผ่านไม่ถูกต้อง" });
                 }
-            }       
+            }
             catch (BCrypt.Net.SaltParseException)
             {
                 return BadRequest(new { Message = "รูปแบบรหัสผ่านในระบบไม่ถูกต้อง (ไม่ใช่ BCrypt)" });
@@ -65,7 +65,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             if (string.IsNullOrEmpty(jwtKey))
             {
                 return StatusCode(500, "ระบบผิดพลาด: ไม่พบการตั้งค่า Jwt:Key ใน appsettings.json");
-        }
+            }
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
             var token = new JwtSecurityToken(
@@ -74,9 +74,12 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 claims: claims,
                 expires: DateTime.Now.AddHours(8),
                 signingCredentials: creds);
-            return Ok(new { Message = "เข้าสู่ระบบสำเร็จ", 
-                            Token = new JwtSecurityTokenHandler().WriteToken(token), 
-                            EmployeeName = employee.Fullname });
+            return Ok(new
+            {
+                Message = "เข้าสู่ระบบสำเร็จ",
+                Token = new JwtSecurityTokenHandler().WriteToken(token),
+                EmployeeName = employee.Fullname
+            });
         }
 
         [HttpPost("login-member")]
@@ -105,13 +108,16 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 expires: DateTime.Now.AddHours(1),
                 signingCredentials: creds);
 
-            return Ok(new { Message = "เข้าสู่ระบบสำเร็จ", 
-                            Token = new JwtSecurityTokenHandler().WriteToken(token), 
-                            MemberName = member.Fullname });
+            return Ok(new
+            {
+                Message = "เข้าสู่ระบบสำเร็จ",
+                Token = new JwtSecurityTokenHandler().WriteToken(token),
+                MemberName = member.Fullname
+            });
         }
         [HttpPost("register-employee")]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult>registerEmployee([FromForm] resgisterEmployeeDtos employee, [FromServices] Cloudinary cloudinary)
+        public async Task<IActionResult> registerEmployee([FromForm] resgisterEmployeeDtos employee, [FromServices] Cloudinary cloudinary)
         {
             if (await _context.Employee.AnyAsync(e => e.Phone == employee.Phone))
             {
@@ -145,23 +151,23 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
 
             if (employee.Image_Profile != null && employee.Image_Profile.Length > 0)
             {
-      
+
                 var allowedExtensions = new[] { ".jpg", ".jpeg", ".png" };
                 var extension = Path.GetExtension(employee.Image_Profile.FileName).ToLower();
                 if (!allowedExtensions.Contains(extension))
                     return BadRequest(new { message = "กรุณาอัปโหลดไฟล์รูปภาพ (.jpg, .png) เท่านั้น" });
 
-                    using var stream = employee.Image_Profile.OpenReadStream();
-                    var uploadParams = new ImageUploadParams()
+                using var stream = employee.Image_Profile.OpenReadStream();
+                var uploadParams = new ImageUploadParams()
                 {
                     File = new FileDescription(employee.Image_Profile.FileName, stream),
-                    Folder = "Employee_profiles", 
+                    Folder = "Employee_profiles",
                     PublicId = $"Employee_{Guid.NewGuid()}",
-           
+
                     Transformation = new Transformation().Width(500).Height(500).Crop("fill").Gravity("face")
                 };
 
-                     var uploadResult = await cloudinary.UploadAsync(uploadParams);
+                var uploadResult = await cloudinary.UploadAsync(uploadParams);
 
                 if (uploadResult.Error != null)
                 {
@@ -204,7 +210,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
         }
 
         [HttpPost("send-otp")]
-        public async Task<IActionResult>  SendOtp(string email)
+        public async Task<IActionResult> SendOtp(string email)
         {
             var isMember = await _context.Members.AnyAsync(u => u.Email == email);
             var isEmployee = await _context.Employee.AnyAsync(u => u.Email == email);
@@ -215,7 +221,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             }
             var otp = new Random().Next(100000, 999999).ToString();
 
-            
+
             _cache.Set(email, otp, TimeSpan.FromMinutes(5));
 
             var message = new MimeMessage();
@@ -225,21 +231,104 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             message.Body = new TextPart("plain") { Text = $"รหัส OTP ของคุณคือ: {otp} (มีอายุ 5 นาที)" };
 
             using (var client = new SmtpClient())
-    {
-        try
-        {
+            {
+                try
+                {
 
-            await client.ConnectAsync("smtp.gmail.com", 587, MailKit.Security.SecureSocketOptions.StartTls);
-            await client.AuthenticateAsync("66011212144@msu.ac.th", "jgywcixvqrgnhtqq"); 
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
-            return Ok(new { message = "ส่งรหัส OTP สำเร็จ กรุณาตรวจสอบอีเมลของคุณ" });
+                    await client.ConnectAsync("smtp.gmail.com", 587, MailKit.Security.SecureSocketOptions.StartTls);
+                    await client.AuthenticateAsync("66011212144@msu.ac.th", "jgywcixvqrgnhtqq");
+                    await client.SendAsync(message);
+                    await client.DisconnectAsync(true);
+                    return Ok(new { message = "ส่งรหัส OTP สำเร็จ กรุณาตรวจสอบอีเมลของคุณ" });
+                }
+                catch (Exception ex)
+                {
+                    return StatusCode(500, "ส่งเมลไม่สำเร็จ: " + ex.Message);
+                }
+            }
         }
-        catch (Exception ex)
+
+        [HttpPut("edit-profile-employee")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> EditProfileEmployee([FromForm] editEmployeeProfileDtos employeeDto, [FromServices] Cloudinary cloudinary)
         {
-            return StatusCode(500, "ส่งเมลไม่สำเร็จ: " + ex.Message);
-        }
-    }
+            var employee = await _context.Employee.FirstOrDefaultAsync(e => e.Emp_id == employeeDto.Emp_id);
+
+            if (employee == null)
+            {
+                return NotFound(new { Message = "ไม่พบข้อมูลพนักงาน" });
+            }
+
+            // ตรวจสอบความซ้ำของเบอร์โทรศัพท์ (ถ้ามีการแก้ไขเบอร์)
+            if (!string.IsNullOrEmpty(employeeDto.Phone) && employeeDto.Phone != employee.Phone)
+            {
+                if (await _context.Employee.AnyAsync(e => e.Phone == employeeDto.Phone && e.Emp_id != employeeDto.Emp_id))
+                {
+                    return BadRequest(new { Message = "เบอร์โทรศัพท์นี้ถูกใช้งานแล้ว" });
+                }
+                employee.Phone = employeeDto.Phone;
+            }
+
+            // ตรวจสอบความซ้ำของอีเมล (ถ้ามีการแก้ไขอีเมล)
+            if (!string.IsNullOrEmpty(employeeDto.Email) && employeeDto.Email != employee.Email)
+            {
+                if (await _context.Employee.AnyAsync(e => e.Email == employeeDto.Email && e.Emp_id != employeeDto.Emp_id))
+                {
+                    return BadRequest(new { Message = "อีเมลนี้ถูกใช้งานแล้ว" });
+                }
+                employee.Email = employeeDto.Email;
+            }
+
+            // อัปเดตข้อมูลทั่วไป
+            if (!string.IsNullOrEmpty(employeeDto.Fullname))
+            {
+                employee.Fullname = employeeDto.Fullname;
+            }
+
+            if (!string.IsNullOrEmpty(employeeDto.Address))
+            {
+                employee.Address = employeeDto.Address;
+            }
+
+            // เปลี่ยนรหัสผ่านแบบ Hash ด้วย BCrypt (ถ้ามีการระบุรหัสผ่านใหม่)
+            if (!string.IsNullOrEmpty(employeeDto.Password))
+            {
+                employee.Password = BCrypt.Net.BCrypt.HashPassword(employeeDto.Password);
+            }
+
+            // จัดการอัปโหลดรูปภาพใหม่ไปยัง Cloudinary (ถ้ามี)
+            if (employeeDto.Image_Profile != null && employeeDto.Image_Profile.Length > 0)
+            {
+                var allowedExtensions = new[] { ".jpg", ".jpeg", ".png" };
+                var extension = Path.GetExtension(employeeDto.Image_Profile.FileName).ToLower();
+                if (!allowedExtensions.Contains(extension))
+                {
+                    return BadRequest(new { Message = "กรุณาอัปโหลดไฟล์รูปภาพ (.jpg, .png) เท่านั้น" });
+                }
+
+                using var stream = employeeDto.Image_Profile.OpenReadStream();
+                var uploadParams = new ImageUploadParams()
+                {
+                    File = new FileDescription(employeeDto.Image_Profile.FileName, stream),
+                    Folder = "Employee_profiles",
+                    PublicId = $"Employee_{Guid.NewGuid()}",
+                    Transformation = new Transformation().Width(500).Height(500).Crop("fill").Gravity("face")
+                };
+
+                var uploadResult = await cloudinary.UploadAsync(uploadParams);
+
+                if (uploadResult.Error != null)
+                {
+                    return BadRequest(new { Message = $"อัปโหลดรูปภาพไม่สำเร็จ: {uploadResult.Error.Message}" });
+                }
+
+                employee.Image_Profile = uploadResult.SecureUrl.ToString();
+            }
+
+            _context.Employee.Update(employee);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { Message = "แก้ไขข้อมูลโปรไฟล์พนักงานสำเร็จ", Employee = employee });
         }
 
         [HttpPost("verify-otp")]
@@ -247,11 +336,11 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
         {
             if (_cache.TryGetValue(model.Email, out string savedOtp))
             {
-                if(savedOtp == model.OtpCode)
+                if (savedOtp == model.OtpCode)
                 {
                     _cache.Remove(model.Email);
                     _cache.Set($"Verified_{model.Email}", true, TimeSpan.FromMinutes(10));
-                     return Ok(new { message = "OTP ถูกต้อง กรุณาตั้งรหัสผ่านใหม่" });
+                    return Ok(new { message = "OTP ถูกต้อง กรุณาตั้งรหัสผ่านใหม่" });
                 }
             }
 
@@ -261,7 +350,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordReq model)
         {
             if (!_cache.TryGetValue($"Verified_{model.Email}", out bool isVerified) || !isVerified)
-            {   
+            {
                 return BadRequest(new { message = "คำขอไม่ถูกต้อง กรุณายืนยัน OTP อีกครั้ง" });
             }
             var Members = await _context.Members.FirstOrDefaultAsync(u => u.Email == model.Email);
@@ -269,12 +358,16 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             if (Members != null)
             {
                 Members.Password = BCrypt.Net.BCrypt.HashPassword(model.NewPassword);
-            }else{
+            }
+            else
+            {
                 var employee = await _context.Members.FirstOrDefaultAsync(e => e.Email == model.Email);
                 if (employee != null)
                 {
                     employee.Password = BCrypt.Net.BCrypt.HashPassword(model.NewPassword);
-                }else{
+                }
+                else
+                {
                     return NotFound(new { message = "ไม่พบอีเมลนี้ในระบบ" });
                 }
             }
