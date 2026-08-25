@@ -58,7 +58,9 @@ namespace Buffet_Restaurant_API.Controllers
 
             bool isPreOrder = dto.OrderType?.ToLower() == "preorder" || dto.OrderType == "สั่งล่วงหน้า";
             string orderTypeDisplay = isPreOrder ? "สั่งล่วงหน้า" : "สั่งหน้าร้าน";
-            string initialStatus = isPreOrder ? "รับออเดอร์" : "กำลังจัดเตรียมอาหาร";
+            // 🟢 ทุกออเดอร์ต้องเริ่มที่ "รับออเดอร์" เหมือนกัน ไม่ว่าจะสั่งหน้าร้านหรือสั่งล่วงหน้า
+            // (เดิม order สั่งหน้าร้านถูกตั้งสถานะเริ่มต้นเป็น "กำลังจัดเตรียมอาหาร" ทำให้ stepper ฝั่งลูกค้ากระโดดข้าม step แรก)
+            string initialStatus = "รับออเดอร์";
 
             using var transaction = await _context.Database.BeginTransactionAsync();
 
@@ -155,10 +157,10 @@ namespace Buffet_Restaurant_API.Controllers
                 return Ok(new
                 {
                     message = $"สั่งอาหาร ({orderTypeDisplay}) เรียบร้อยแล้ว",
-                    Order_id = newOrder.Order_id,
-                    Bill_id = finalBillId,
-                    Order_type = orderTypeDisplay,
-                    Order_Status = initialStatus
+                    orderId = newOrder.Order_id,   // 🟢 เปลี่ยนเป็น camelCase ไม่มี underscore ให้ตรงกับ property อื่นๆ ของ API (OrderId, OrderStatus)
+                    billId = finalBillId,
+                    orderType = orderTypeDisplay,
+                    orderStatus = initialStatus
                 });
             }
             catch (Exception ex)
