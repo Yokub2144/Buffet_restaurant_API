@@ -19,9 +19,9 @@ namespace Buffet_Restaurant_API.Controllers
         private readonly IHubContext<tableStatusHub> _hubContext;
         private readonly Cloudinary _cloudinary;
 
-        // ราคา hardcode ทดสอบ 
-        private const decimal PricePerAdult = 1m;
-        private const decimal PricePerChild = 1m;
+        // ราคาต่อคน (บาท) — ปรับให้ตรงราคาจริงของร้าน
+        private const decimal PricePerAdult = 199m;
+        private const decimal PricePerChild = 99m;
 
         public BookingController(
             restaurantDbContext context,

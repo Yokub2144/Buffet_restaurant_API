@@ -24,6 +24,7 @@ namespace Buffet_Restaurant_Managment_System_API.Services
                 var url = "https://api.inwcloud.shop/v1/promptpay/generate";
                 var payload = new { amount = amount };
                 var json = JsonSerializer.Serialize(payload);
+                Console.WriteLine($"=== SENDING TO INWCLOUD: amount={amount} (type: {amount.GetType().Name}) json={json} ===");
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 
                 _httpClient.DefaultRequestHeaders.Clear();
