@@ -306,6 +306,42 @@ namespace Buffet_Restaurant_API.Controllers
             return Ok(orderDetails);
         }
 
+        // 📡 4.5 ดึงสถานะออเดอร์ + รายการสินค้า สำหรับหน้า Track Order ของลูกค้า
+        // (เบากว่า GetKitchenTicket เพราะไม่พิมพ์ใบเสร็จ/สร้าง QR ทุกครั้งที่เรียก
+        //  ใช้ตอนโหลดหน้าครั้งแรก จากนั้นให้ SignalR "OrderStatusUpdated" อัปเดตแบบ real-time ต่อ)
+        [HttpGet("getOrderStatus/{orderId}")]
+        public async Task<IActionResult> GetOrderStatus(int orderId)
+        {
+            var order = await _context.Orders
+                .Where(o => o.Order_id == orderId)
+                .Select(o => new
+                {
+                    OrderId = o.Order_id,
+                    OrderStatus = o.Order_Status,
+                    BillId = o.Bill_id
+                })
+                .FirstOrDefaultAsync();
+
+            if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
+
+            var items = await (from od in _context.Order_detail
+                               join m in _context.Menus on od.Menu_id equals m.Menu_id
+                               where od.Order_id == orderId
+                               select new
+                               {
+                                   MenuId = od.Menu_id,
+                                   MenuName = m.Menu_Name,
+                                   Quantity = od.Quantity
+                               }).ToListAsync();
+
+            return Ok(new
+            {
+                OrderId = order.OrderId,
+                OrderStatus = order.OrderStatus,
+                Items = items
+            });
+        }
+
         // 📲 5. ดึงข้อมูลเสิร์ฟ + บันทึกลง DB เปลี่ยนสถานะเป็น "กำลังนำเสิร์ฟ"
         [HttpGet("getServeInfo/{orderId}")]
         [HttpPost("getServeInfo/{orderId}")]
