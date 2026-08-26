@@ -440,23 +440,32 @@ namespace Buffet_Restaurant_API.Controllers
                 items = pricedItems
             });
         }
-        [HttpGet("getActiveOrdersByBill/{billId}")]
-        public async Task<IActionResult> GetActiveOrdersByBill(int billId)
+        [HttpGet("getActiveOrdersByBill/{id}")]
+        public async Task<IActionResult> GetActiveOrdersByBill(int id)
         {
+            // 1. หา Bill_id จาก Booking_id หรือ Bill_id โดยตรง
+            var bill = await _context.Bill
+                .FirstOrDefaultAsync(b => b.Booking_id == id || b.Bill_id == id);
+
+            int targetBillId = bill != null ? bill.Bill_id : id;
+
+            // 2. ดึงรายการ Orders ทั้งหมดของ Bill นี้ (คัดเฉพาะรายการที่ยังเสิร์ฟไม่เสร็จ)
             var activeOrders = await _context.Orders
-                .Where(o => o.Bill_id == billId && o.Order_Status != "เสร็จสิ้น")
-                .OrderBy(o => o.OrderDateTime) // เรียงลำดับจากสั่งก่อนไปหลัง
+                .Where(o => o.Bill_id == targetBillId
+                         && o.Order_Status != "เสร็จสิ้น"
+                         && o.Order_Status != "ดำเนินการเสร็จสิ้น")
+                .OrderByDescending(o => o.OrderDateTime)
                 .Select(o => new
                 {
                     OrderId = o.Order_id,
-                    OrderStatus = o.Order_Status,
+                    OrderStatus = o.Order_Status ?? "กำลังจัดเตรียมอาหาร",
                     OrderTime = o.OrderDateTime,
                     Items = _context.Order_detail
                         .Where(od => od.Order_id == o.Order_id)
                         .Select(od => new
                         {
                             MenuId = od.Menu_id,
-                            MenuName = od.Menu.Menu_Name,
+                            MenuName = od.Menu != null ? od.Menu.Menu_Name : "รายการอาหาร",
                             Quantity = od.Quantity
                         }).ToList()
                 })
