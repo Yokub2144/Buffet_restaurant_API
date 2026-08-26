@@ -14,7 +14,7 @@ namespace Buffet_Restaurant_API.Models
         public DateTime? Closed_at {get; set;}
         public int NumAdults {get; set;}
         public int NumChildren {get; set;}
-        public decimal Fine_kg {get; set;}
+        public decimal Fine {get; set;}
         public decimal Total_amount {get; set;}
         public string? PaymentMethod {get; set;}
     }

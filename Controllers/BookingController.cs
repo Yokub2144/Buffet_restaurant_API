@@ -232,7 +232,7 @@ namespace Buffet_Restaurant_API.Controllers
                     Created_at = DateTime.Now,
                     NumAdults = booking.Adult_Count,
                     NumChildren = booking.Child_Count,
-                    Fine_kg = 0,
+                    Fine = 0,
                     Total_amount = booking.Deposit_Amount,
                     PaymentMethod = null
                 };
