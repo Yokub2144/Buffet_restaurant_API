@@ -6,17 +6,25 @@ namespace Buffet_Restaurant_API.Models
     public class Order_detail
     {
         [Key]
-        public int Orderdetail_id {get; set;}
-        public int Order_id {get; set;}
-        public int menu_id {get; set;}
-        public int Quantity {get; set;}
-        public decimal PriceAtOrderTime {get; set;}
+        [Column("Orderdetail_id")]
+        public int Orderdetail_id { get; set; }
 
-        [ForeignKey("menu_id")]
-        public virtual Menu Menu { get; set; }
+        [Column("Order_id")]
+        public int Order_id { get; set; }
+
+        [Column("Menu_id")]
+        public int Menu_id { get; set; }
+
+        [Column("Quantity")]
+        public int Quantity { get; set; }
+
+        [Column("PriceAtOrderTime")]
+        public decimal PriceAtOrderTime { get; set; }
+
+        [ForeignKey("Menu_id")]
+        public virtual Menu? Menu { get; set; }
 
         [ForeignKey("Order_id")]
-        public virtual Orders Orders { get; set; }
-
+        public virtual Orders? Orders { get; set; }
     }
 }

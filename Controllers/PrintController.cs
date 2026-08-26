@@ -50,7 +50,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
 
             var orderItems = await (from od in _context.Order_detail
                                     join o in _context.Orders on od.Order_id equals o.Order_id
-                                    join m in _context.Menus on od.menu_id equals m.Menu_id
+                                    join m in _context.Menus on od.Menu_id equals m.Menu_id
                                     where o.Bill_id == billId
                                     select new OrderItemDto
                                     {

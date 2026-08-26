@@ -17,27 +17,33 @@ namespace Buffet_Restaurant_Managment_System_API.Services
 
         public async Task<string> GeneratePromptPayQr(decimal amount)
         {
-            try{
-            Console.WriteLine($"=== API KEY VALUE: [{_apiKey}] ===");
-
-            var url = "https://api.inwcloud.shop/v1/promptpay/generate";
-            var payload = new { amount = amount };
-            var json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            _httpClient.DefaultRequestHeaders.Clear();
-            _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
-            Console.WriteLine($"Check API Key: {_apiKey}");
-
-            var response = await _httpClient.PostAsync(url, content);
-
-            if (response.IsSuccessStatusCode)
+            try
             {
-                return await response.Content.ReadAsStringAsync();
-            }
+                Console.WriteLine($"=== API KEY VALUE: [{_apiKey}] ===");
 
-            return $"Error: {response.StatusCode}";
-            }catch(Exception ex){
+                var url = "https://api.inwcloud.shop/v1/promptpay/generate";
+                var payload = new { amount = amount };
+                var json = JsonSerializer.Serialize(payload);
+                Console.WriteLine($"=== SENDING TO INWCLOUD: amount={amount} (type: {amount.GetType().Name}) json={json} ===");
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                _httpClient.DefaultRequestHeaders.Clear();
+                _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
+                Console.WriteLine($"Check API Key: {_apiKey}");
+
+                var response = await _httpClient.PostAsync(url, content);
+                var responseBody = await response.Content.ReadAsStringAsync();
+
+                if (response.IsSuccessStatusCode)
+                {
+                    return responseBody;
+                }
+
+                Console.WriteLine($"=== INWCLOUD ERROR BODY: {responseBody} ===");
+                return $"Error: {response.StatusCode} - {responseBody}";
+            }
+            catch (Exception ex)
+            {
                 Console.WriteLine($"Error generating PromptPay QR: {ex.Message}");
                 return $"Error: {ex.Message}";
             }

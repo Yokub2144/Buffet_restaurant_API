@@ -38,7 +38,6 @@ namespace Buffet_Restaurant_API.Controllers
             return _configuration["FrontendBaseUrl"] ?? "https://buffet-restaurant-management-system.vercel.app";
         }
 
-        // 🟢 1. Checkout สั่งซื้ออาหาร
         [HttpPost("checkout")]
         public async Task<IActionResult> PlaceOrder([FromBody] OrderDto dto)
         {
@@ -57,27 +56,58 @@ namespace Buffet_Restaurant_API.Controllers
                 return BadRequest(new { message = "ไม่มีรายการสินค้าในตะกร้า" });
             }
 
-            string orderTypeDisplay;
-            string initialStatus;
-
-            if (dto.OrderType?.ToLower() == "preorder" || dto.OrderType == "สั่งล่วงหน้า")
-            {
-                orderTypeDisplay = "สั่งล่วงหน้า";
-                initialStatus = "รับออเดอร์";
-            }
-            else
-            {
-                orderTypeDisplay = "สั่งหน้าร้าน";
-                initialStatus = "กำลังจัดเตรียมอาหาร";
-            }
+            bool isPreOrder = dto.OrderType?.ToLower() == "preorder" || dto.OrderType == "สั่งล่วงหน้า";
+            string orderTypeDisplay = isPreOrder ? "สั่งล่วงหน้า" : "สั่งหน้าร้าน";
+            // 🟢 ทุกออเดอร์เริ่มที่ "กำลังจัดเตรียมอาหาร" เหมือนกัน ไม่ว่าจะสั่งหน้าร้านหรือสั่งล่วงหน้า
+            string initialStatus = "กำลังจัดเตรียมอาหาร";
 
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
             {
+                int finalBillId = 0;
+
+                // 🟢 1. จัดการหา Bill_id จาก BookingId หรือ BillId ที่ส่งมา
+                if (dto.BillId.HasValue && dto.BillId.Value > 0)
+                {
+                    finalBillId = dto.BillId.Value;
+                }
+                else if (dto.BookingId.HasValue && dto.BookingId.Value > 0)
+                {
+                    // ค้นหาบิลที่มีอยู่แล้วจากการจองนี้
+                    var existingBill = await _context.Bill
+                        .FirstOrDefaultAsync(b => b.Booking_id == dto.BookingId.Value);
+
+                    if (existingBill != null)
+                    {
+                        finalBillId = existingBill.Bill_id;
+                    }
+                    else
+                    {
+                        // ถ้ายังไม่มี ให้เปิดบิลใหม่พร้อมใส่ค่า Default
+                        var newBill = new Bill
+                        {
+                            Booking_id = dto.BookingId.Value,
+                            Config_id = 30001, // Default Config/Package
+                            Emp_id = 1,        // Default พนักงาน/ระบบ
+                            Created_at = DateTime.Now
+                        };
+
+                        _context.Bill.Add(newBill);
+                        await _context.SaveChangesAsync();
+                        finalBillId = newBill.Bill_id;
+                    }
+                }
+
+                if (finalBillId == 0)
+                {
+                    return BadRequest(new { message = "ไม่สามารถระบุบิลสำหรับออเดอร์นี้ได้ กรุณาตรวจสอบ BookingId หรือ BillId" });
+                }
+
+                // 🟢 2. สร้าง Order
                 var newOrder = new Orders
                 {
-                    Bill_id = dto.BillId,
+                    Bill_id = finalBillId,
                     Order_type = orderTypeDisplay,
                     OrderDateTime = DateTime.Now,
                     Order_Status = initialStatus
@@ -100,7 +130,7 @@ namespace Buffet_Restaurant_API.Controllers
                     orderDetails.Add(new Order_detail
                     {
                         Order_id = newOrder.Order_id,
-                        menu_id = item.Menu_id,
+                        Menu_id = item.Menu_id, // 🟢 แก้เป็น Menu_id (M ตัวใหญ่)
                         Quantity = item.Quantity,
                         PriceAtOrderTime = currentPrice
                     });
@@ -117,15 +147,19 @@ namespace Buffet_Restaurant_API.Controllers
 
                 await transaction.CommitAsync();
 
-                // 🔔 สะกิด SignalR แจ้งเตือนครัว
-                await _hubContext.Clients.All.SendAsync("NewKitchenOrder", newOrder.Order_id);
+                // 🟢 3. แจ้งเตือนห้องครัวผ่าน SignalR เฉพาะสั่งหน้าร้าน
+                if (!isPreOrder)
+                {
+                    await _hubContext.Clients.All.SendAsync("NewKitchenOrder", newOrder.Order_id);
+                }
 
                 return Ok(new
                 {
                     message = $"สั่งอาหาร ({orderTypeDisplay}) เรียบร้อยแล้ว",
-                    Order_id = newOrder.Order_id,
-                    Order_type = orderTypeDisplay,
-                    Order_Status = initialStatus
+                    orderId = newOrder.Order_id,   // 🟢 เปลี่ยนเป็น camelCase ไม่มี underscore ให้ตรงกับ property อื่นๆ ของ API (OrderId, OrderStatus)
+                    billId = finalBillId,
+                    orderType = orderTypeDisplay,
+                    orderStatus = initialStatus
                 });
             }
             catch (Exception ex)
@@ -161,11 +195,11 @@ namespace Buffet_Restaurant_API.Controllers
             string tableDisplay = tableNumbers.Any() ? string.Join(", ", tableNumbers) : "ไม่ระบุโต๊ะ";
 
             var items = await (from od in _context.Order_detail
-                               join m in _context.Menus on od.menu_id equals m.Menu_id
+                               join m in _context.Menus on od.Menu_id equals m.Menu_id // 🟢 แก้เป็น od.Menu_id
                                where od.Order_id == orderId
                                select new
                                {
-                                   MenuId = od.menu_id,
+                                   MenuId = od.Menu_id, // 🟢 แก้เป็น od.Menu_id
                                    MenuName = m.Menu_Name,
                                    Quantity = od.Quantity
                                }).ToListAsync();
@@ -204,7 +238,9 @@ namespace Buffet_Restaurant_API.Controllers
             }
 
             var printItems = items.Select(i => (i.MenuName, i.Quantity)).ToList();
-            _ = EscPosPrinterHelper.PrintKitchenTicket(order.OrderId, tableDisplay, order.OrderTime, printItems, GetFrontendBaseUrl());
+
+            // 🟢 แก้ไขเพื่อยกเลิกการเตือน Async
+            Task.Run(() => EscPosPrinterHelper.PrintKitchenTicket(order.OrderId, tableDisplay, order.OrderTime, printItems, GetFrontendBaseUrl()));
 
             return Ok(new
             {
@@ -217,7 +253,7 @@ namespace Buffet_Restaurant_API.Controllers
             });
         }
 
-        // 📲 3. Endpoint พนักงานกดปุ่มยืนยันนำเสิร์ฟเสร็จสิ้น (ถึงโต๊ะแล้ว)
+        // 📲 3. Endpoint พนักงานกดปุ่มยืนยันนำเสิร์ฟเสร็จสิ้น
         [HttpGet("{orderId}/serve")]
         [HttpPost("{orderId}/serve")]
         public async Task<IActionResult> ServeOrder(int orderId)
@@ -227,8 +263,6 @@ namespace Buffet_Restaurant_API.Controllers
                 var order = await _context.Orders.FirstOrDefaultAsync(o => o.Order_id == orderId);
                 if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
 
-                // 🟢 ต้องใช้ค่าที่ตรงกับ enum ที่อนุญาตในคอลัมน์ Order_Status เท่านั้น
-                // ('รับออเดอร์','กำลังจัดเตรียมอาหาร','กำลังนำเสิร์ฟ','เสร็จสิ้น') — "SERVED" ไม่ใช่ค่าที่ถูกต้อง
                 order.Order_Status = "เสร็จสิ้น";
                 _context.Entry(order).State = EntityState.Modified;
                 await _context.SaveChangesAsync();
@@ -259,7 +293,7 @@ namespace Buffet_Restaurant_API.Controllers
                 .Where(od => od.Order_id == orderId)
                 .Select(od => new
                 {
-                    Menu_id = od.menu_id,
+                    Menu_id = od.Menu_id, // 🟢 แก้เป็น od.Menu_id
                     Quantity = od.Quantity,
                     PriceAtOrderTime = od.PriceAtOrderTime
                 })
@@ -273,9 +307,43 @@ namespace Buffet_Restaurant_API.Controllers
             return Ok(orderDetails);
         }
 
-        // 📲 5. ดึงข้อมูลเสิร์ฟ + บันทึกลง DB เปลี่ยนสถานะเป็น "กำลังนำเสิร์ฟ" ทันทีที่สแกน
-        // หมายเหตุ: endpoint นี้มี side-effect (เปลี่ยนสถานะ) จึงรองรับ POST เป็นหลัก
-        // ยังคงรับ GET ไว้ชั่วคราวเพื่อความเข้ากันได้กับโค้ด frontend เดิม — แนะนำให้ frontend ย้ายไปใช้ POST แล้วค่อยลบ [HttpGet] ทิ้งภายหลัง
+        // 📡 4.5 ดึงสถานะออเดอร์ + รายการสินค้า สำหรับหน้า Track Order ของลูกค้า
+        // (เบากว่า GetKitchenTicket เพราะไม่พิมพ์ใบเสร็จ/สร้าง QR ทุกครั้งที่เรียก
+        //  ใช้ตอนโหลดหน้าครั้งแรก จากนั้นให้ SignalR "OrderStatusUpdated" อัปเดตแบบ real-time ต่อ)
+        [HttpGet("getOrderStatus/{orderId}")]
+        public async Task<IActionResult> GetOrderStatus(int orderId)
+        {
+            var order = await _context.Orders
+                .Where(o => o.Order_id == orderId)
+                .Select(o => new
+                {
+                    OrderId = o.Order_id,
+                    OrderStatus = o.Order_Status,
+                    BillId = o.Bill_id
+                })
+                .FirstOrDefaultAsync();
+
+            if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
+
+            var items = await (from od in _context.Order_detail
+                               join m in _context.Menus on od.Menu_id equals m.Menu_id
+                               where od.Order_id == orderId
+                               select new
+                               {
+                                   MenuId = od.Menu_id,
+                                   MenuName = m.Menu_Name,
+                                   Quantity = od.Quantity
+                               }).ToListAsync();
+
+            return Ok(new
+            {
+                OrderId = order.OrderId,
+                OrderStatus = order.OrderStatus,
+                Items = items
+            });
+        }
+
+        // 📲 5. ดึงข้อมูลเสิร์ฟ + บันทึกลง DB เปลี่ยนสถานะเป็น "กำลังนำเสิร์ฟ"
         [HttpGet("getServeInfo/{orderId}")]
         [HttpPost("getServeInfo/{orderId}")]
         public async Task<IActionResult> GetServeInfo(int orderId)
@@ -285,12 +353,11 @@ namespace Buffet_Restaurant_API.Controllers
                 var order = await _context.Orders.FirstOrDefaultAsync(o => o.Order_id == orderId);
                 if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
 
-                // 🟢 บันทึกลง DB ทันทีเมื่อสแกนเข้ามา (ยกเว้นออเดอร์ที่เสิร์ฟเสร็จหรือกำลังนำเสิร์ฟอยู่แล้ว)
                 if (order.Order_Status != "เสร็จสิ้น" && order.Order_Status != "กำลังนำเสิร์ฟ")
                 {
                     order.Order_Status = "กำลังนำเสิร์ฟ";
                     _context.Entry(order).State = EntityState.Modified;
-                    await _context.SaveChangesAsync(); // บังคับเขียนลง DB ทันที
+                    await _context.SaveChangesAsync();
 
                     try
                     {
@@ -310,11 +377,11 @@ namespace Buffet_Restaurant_API.Controllers
                 string tableDisplay = tableNumbers.Any() ? string.Join(", ", tableNumbers) : "ไม่ระบุโต๊ะ";
 
                 var items = await (from od in _context.Order_detail
-                                   join m in _context.Menus on od.menu_id equals m.Menu_id
+                                   join m in _context.Menus on od.Menu_id equals m.Menu_id // 🟢 แก้เป็น od.Menu_id
                                    where od.Order_id == orderId
                                    select new
                                    {
-                                       MenuId = od.menu_id,
+                                       MenuId = od.Menu_id, // 🟢 แก้เป็น od.Menu_id
                                        MenuName = m.Menu_Name,
                                        Quantity = od.Quantity
                                    }).ToListAsync();
@@ -340,7 +407,7 @@ namespace Buffet_Restaurant_API.Controllers
         {
             var pricedItems = await (from od in _context.Order_detail
                                      join o in _context.Orders on od.Order_id equals o.Order_id
-                                     join m in _context.Menus on od.menu_id equals m.Menu_id
+                                     join m in _context.Menus on od.Menu_id equals m.Menu_id // 🟢 แก้เป็น od.Menu_id
                                      where o.Bill_id == billId
                                            && o.Order_Status == "ดำเนินการเสร็จสิ้น"
                                            && od.PriceAtOrderTime > 0
@@ -348,7 +415,7 @@ namespace Buffet_Restaurant_API.Controllers
                                      {
                                          od.Orderdetail_id,
                                          od.Order_id,
-                                         Menu_id = od.menu_id,
+                                         Menu_id = od.Menu_id, // 🟢 แก้เป็น od.Menu_id
                                          MenuName = m.Menu_Name,
                                          od.Quantity,
                                          od.PriceAtOrderTime,
