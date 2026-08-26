@@ -40,7 +40,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 return NotFound(new { message = "ไม่พบข้อมูลการจอง" });
             }
 
-            // 🟢 [โหมดทดสอบ] บังคับยอดสำหรับเจน QR Code เป็น 1.00 บาท
+            // [โหมดทดสอบ] ส่ง 1.00 เข้าไปให้ Service เจน QR
             decimal amountToPay = 1.00m;
 
             var qrResult = await _promptPayService.GeneratePromptPayQr(amountToPay);
@@ -60,11 +60,21 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
             {
                 var parsed = JsonSerializer.Deserialize<JsonElement>(qrResult);
                 var transactionId = parsed.GetProperty("data").GetProperty("transactionId").GetString();
-                var amount = parsed.GetProperty("data").GetProperty("amount").GetString();
+
+                // 🟢 ดึงยอดเงินจริงที่ Gateway เจนออกมา (เช่น "1.02")
+                var amountStr = parsed.GetProperty("data").GetProperty("amount").GetString();
+
+                // 🟢 อัปเดตยอดมัดจำใน DB ให้เป็น 1.02 ตรงตาม QR จริง
+                if (decimal.TryParse(amountStr, out decimal actualAmount))
+                {
+                    booking.Deposit_Amount = actualAmount;
+                    await _context.SaveChangesAsync();
+                }
+
                 return Ok(new
                 {
                     qr_data = qrResult,
-                    amount_pay = amount,
+                    amount_pay = amountStr, // 🟢 ส่ง 1.02 กลับไปให้ Frontend แสดงผล
                     booking_id = booking.Booking_id,
                     transaction_id = transactionId,
                 });
@@ -96,10 +106,9 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 return NotFound(new { message = "ไม่พบข้อมูลบิลที่ต้องการชำระเงิน" });
             }
 
-            // 🟢 [โหมดทดสอบ] บังคับยอดจ่าย Checkout ให้เป็น 1.00 บาท
+            // [โหมดทดสอบ] ยิงส่ง 1.00 บาทเข้า Gateway
             decimal amountToPay = 1.00m;
 
-            // เรียกใช้งาน Service ด้วยยอด 1.00 บาท
             var qrResult = await _promptPayService.GeneratePromptPayQr(amountToPay);
             Console.WriteLine($"=== CHECKOUT QR RESULT: {qrResult} ===");
 
@@ -124,14 +133,22 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                     ? amountProp.GetDecimal().ToString("F2")
                     : amountProp.GetString();
 
-                // อัปเดต Total_amount เป็น 1.00 บาทลงตาราง Bill
-                bill.Total_amount = amountToPay;
+                // 🟢 เปลี่ยนมาใช้ยอดเงินจริงจาก QR (เช่น 1.02) อัปเดตลง Bill DB
+                if (decimal.TryParse(amountStr, out decimal actualAmount))
+                {
+                    bill.Total_amount = actualAmount;
+                }
+                else
+                {
+                    bill.Total_amount = amountToPay;
+                }
+
                 await _context.SaveChangesAsync();
 
                 return Ok(new
                 {
                     qr_data = qrResult,
-                    amount_pay = amountStr,
+                    amount_pay = amountStr, // 🟢 ส่ง 1.02 ตรงตามธนาคารกลับไปหน้าบ้าน
                     bill_id = bill.Bill_id,
                     booking_id = bill.Booking_id,
                     transaction_id = transactionId
