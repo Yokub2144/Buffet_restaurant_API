@@ -253,7 +253,6 @@ namespace Buffet_Restaurant_API.Controllers
             });
         }
 
-        // 📲 3. Endpoint พนักงานกดปุ่มยืนยันนำเสิร์ฟเสร็จสิ้น
         [HttpGet("{orderId}/serve")]
         [HttpPost("{orderId}/serve")]
         public async Task<IActionResult> ServeOrder(int orderId)
@@ -269,7 +268,13 @@ namespace Buffet_Restaurant_API.Controllers
 
                 try
                 {
-                    await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new { orderId = orderId, status = "เสร็จสิ้น" });
+                    // 🟢 แก้ไข: ส่งข้อมูลครอบคลุมทั้ง orderId, status และ billId
+                    await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new
+                    {
+                        orderId = orderId,
+                        status = "เสร็จสิ้น",
+                        billId = order.Bill_id
+                    });
                 }
                 catch (Exception hubEx)
                 {
@@ -361,7 +366,13 @@ namespace Buffet_Restaurant_API.Controllers
 
                     try
                     {
-                        await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new { orderId = orderId, status = "กำลังนำเสิร์ฟ" });
+                        // 🟢 แก้ไข: ส่งข้อมูลครอบคลุมทั้ง orderId, status และ billId
+                        await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new
+                        {
+                            orderId = orderId,
+                            status = "กำลังนำเสิร์ฟ",
+                            billId = order.Bill_id
+                        });
                     }
                     catch (Exception hubEx)
                     {
@@ -377,11 +388,11 @@ namespace Buffet_Restaurant_API.Controllers
                 string tableDisplay = tableNumbers.Any() ? string.Join(", ", tableNumbers) : "ไม่ระบุโต๊ะ";
 
                 var items = await (from od in _context.Order_detail
-                                   join m in _context.Menus on od.Menu_id equals m.Menu_id // 🟢 แก้เป็น od.Menu_id
+                                   join m in _context.Menus on od.Menu_id equals m.Menu_id
                                    where od.Order_id == orderId
                                    select new
                                    {
-                                       MenuId = od.Menu_id, // 🟢 แก้เป็น od.Menu_id
+                                       MenuId = od.Menu_id,
                                        MenuName = m.Menu_Name,
                                        Quantity = od.Quantity
                                    }).ToListAsync();
@@ -443,30 +454,38 @@ namespace Buffet_Restaurant_API.Controllers
         [HttpGet("getActiveOrdersByBill/{id}")]
         public async Task<IActionResult> GetActiveOrdersByBill(int id)
         {
-            // 1. หา Bill_id จาก Booking_id หรือ Bill_id โดยตรง
-            var bill = await _context.Bill
-                .FirstOrDefaultAsync(b => b.Booking_id == id || b.Bill_id == id);
+            int targetBillId = id;
 
-            int targetBillId = bill != null ? bill.Bill_id : id;
+            var order = await _context.Orders.FirstOrDefaultAsync(o => o.Order_id == id);
+            if (order != null)
+            {
+                targetBillId = order.Bill_id ?? id;
+            }
+            else
+            {
+                var bill = await _context.Bill.FirstOrDefaultAsync(b => b.Booking_id == id || b.Bill_id == id);
+                if (bill != null)
+                {
+                    targetBillId = bill.Bill_id;
+                }
+            }
 
-            // 2. ดึงรายการ Orders ทั้งหมดของ Bill นี้ (คัดเฉพาะรายการที่ยังเสิร์ฟไม่เสร็จ)
+            // 🟢 แก้ไข: ลบเงื่อนไขกั้น status ออก เพื่อดึงประวัติรายการที่เสร็จแล้วกลับมาแสดงตอน Refresh ด้วย
             var activeOrders = await _context.Orders
-                .Where(o => o.Bill_id == targetBillId
-                         && o.Order_Status != "เสร็จสิ้น"
-                         && o.Order_Status != "ดำเนินการเสร็จสิ้น")
+                .Where(o => o.Bill_id == targetBillId)
                 .OrderByDescending(o => o.OrderDateTime)
                 .Select(o => new
                 {
-                    OrderId = o.Order_id,
-                    OrderStatus = o.Order_Status ?? "กำลังจัดเตรียมอาหาร",
-                    OrderTime = o.OrderDateTime,
-                    Items = _context.Order_detail
+                    orderId = o.Order_id,
+                    orderStatus = o.Order_Status ?? "กำลังจัดเตรียมอาหาร",
+                    orderTime = o.OrderDateTime,
+                    items = _context.Order_detail
                         .Where(od => od.Order_id == o.Order_id)
                         .Select(od => new
                         {
-                            MenuId = od.Menu_id,
-                            MenuName = od.Menu != null ? od.Menu.Menu_Name : "รายการอาหาร",
-                            Quantity = od.Quantity
+                            menuId = od.Menu_id,
+                            menuName = od.Menu != null ? od.Menu.Menu_Name : "รายการอาหาร",
+                            quantity = od.Quantity
                         }).ToList()
                 })
                 .ToListAsync();
@@ -639,5 +658,7 @@ namespace Buffet_Restaurant_API.Controllers
 
             return bytes.ToArray();
         }
+
+
     }
 }
