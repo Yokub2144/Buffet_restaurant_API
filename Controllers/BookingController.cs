@@ -146,7 +146,9 @@ namespace Buffet_Restaurant_API.Controllers
             try
             {
                 decimal total = (dto.Adult_Count * PricePerAdult) + (dto.Child_Count * PricePerChild);
-                decimal deposit = Math.Round(total / 2, 2);
+
+                // 🟢 [โหมดทดสอบ] บังคับยอดมัดจำให้เป็น 1.00 บาท
+                decimal deposit = 1.00m;
 
                 var booking = new Booking
                 {
@@ -155,7 +157,7 @@ namespace Buffet_Restaurant_API.Controllers
                     Adult_Count = dto.Adult_Count,
                     Child_Count = dto.Child_Count,
                     Booking_Status = "Pending",
-                    Deposit_Amount = deposit        // ← เก็บยอดมัดจำไว้ใช้ตอนสร้าง QR
+                    Deposit_Amount = deposit        // ← บันทึก 1.00 บาทลง DB
                 };
                 _context.Bookings.Add(booking);
                 await _context.SaveChangesAsync();
@@ -178,8 +180,8 @@ namespace Buffet_Restaurant_API.Controllers
                         price_per_adult = PricePerAdult,
                         price_per_child = PricePerChild,
                         total_amount = total,
-                        deposit_amount = deposit,           // จ่ายตอนนี้
-                        remaining_amount = total - deposit    // จ่ายที่เคาน์เตอร์
+                        deposit_amount = deposit,           // จ่าย 1.00 บาทตอนทดสอบ
+                        remaining_amount = total - deposit
                     });
             }
             catch (Exception ex)
