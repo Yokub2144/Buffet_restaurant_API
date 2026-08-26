@@ -440,6 +440,30 @@ namespace Buffet_Restaurant_API.Controllers
                 items = pricedItems
             });
         }
+        [HttpGet("getActiveOrdersByBill/{billId}")]
+        public async Task<IActionResult> GetActiveOrdersByBill(int billId)
+        {
+            var activeOrders = await _context.Orders
+                .Where(o => o.Bill_id == billId && o.Order_Status != "เสร็จสิ้น")
+                .OrderBy(o => o.OrderDateTime) // เรียงลำดับจากสั่งก่อนไปหลัง
+                .Select(o => new
+                {
+                    OrderId = o.Order_id,
+                    OrderStatus = o.Order_Status,
+                    OrderTime = o.OrderDateTime,
+                    Items = _context.Order_detail
+                        .Where(od => od.Order_id == o.Order_id)
+                        .Select(od => new
+                        {
+                            MenuId = od.Menu_id,
+                            MenuName = od.Menu.Menu_Name,
+                            Quantity = od.Quantity
+                        }).ToList()
+                })
+                .ToListAsync();
+
+            return Ok(activeOrders);
+        }
     }
 
     public static class EscPosPrinterHelper
