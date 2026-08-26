@@ -55,7 +55,7 @@ namespace Buffet_Restaurant_API.Controllers
                     Closed_at = null,
                     NumAdults = dto.NumAdults,
                     NumChildren = dto.NumChildren,
-                    Fine_kg = 0,
+                    Fine = 0,
                     Total_amount = 0,
                     PaymentMethod = null
                 };
@@ -126,7 +126,7 @@ namespace Buffet_Restaurant_API.Controllers
                     Created_at = DateTime.Now,
                     NumAdults = booking.Adult_Count,
                     NumChildren = booking.Child_Count,
-                    Fine_kg = 0,
+                    Fine = 0,
                     Total_amount = booking.Deposit_Amount,
                     PaymentMethod = null
                 };
@@ -177,7 +177,7 @@ namespace Buffet_Restaurant_API.Controllers
 
                 // 🟢 2. อัปเดตข้อมูลการปิดบิล
                 bill.Closed_at = DateTime.Now;
-                bill.Fine_kg = dto.Fine_kg;
+                bill.Fine = dto.Fine;
                 bill.Discount_id = dto.Discount_id;
                 bill.Total_amount = dto.Total_amount;
                 bill.PaymentMethod = dto.PaymentMethod ?? "เงินสด";
@@ -295,7 +295,7 @@ namespace Buffet_Restaurant_API.Controllers
                     return NotFound(new { message = "ไม่พบข้อมูลบิลที่ต้องการอัปเดต" });
                 }
 
-                bill.Fine_kg = dto.Fine_kg;
+                bill.Fine = dto.Fine;
                 bill.NumAdults = dto.NumAdults;
                 bill.NumChildren = dto.NumChildren;
                 bill.Discount_id = dto.Discount_id;
@@ -306,6 +306,26 @@ namespace Buffet_Restaurant_API.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการอัปเดตบิล", error = ex.Message });
+            }
+        }
+        [HttpPut("updateFine/{billId}")]
+        public async Task<IActionResult> UpdateFine(int billId, [FromBody ] updateFineDto dto)
+        {
+            try
+            {
+                var bill = await _context.Bill.FindAsync(billId);
+                if (bill == null)
+                {
+                    return NotFound(new { message = "ไม่พบข้อมูลบิลที่ต้องการอัปเดต" });
+                }
+
+                bill.Fine = dto.Fine;
+                await _context.SaveChangesAsync();
+                return Ok(new { message = "อัปเดตค่าปรับเรียบร้อยแล้ว", Fine = bill.Fine });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการอัปเดตค่าปรับ", error = ex.Message });
             }
         }
         [HttpDelete("delete/{billId}")]

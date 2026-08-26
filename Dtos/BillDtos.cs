@@ -19,7 +19,7 @@ namespace Buffet_Restaurant_API.Dtos
 
     public class CloseBillDto
     {
-        public decimal Fine_kg { get; set; }
+        public decimal Fine { get; set; }
         public decimal Total_amount { get; set; }
         public string PaymentMethod { get; set; } = null!;
         public int? Discount_id { get; set; } // เพิ่มเข้ามาตอนปิดบิล
@@ -27,7 +27,7 @@ namespace Buffet_Restaurant_API.Dtos
     public class UpdateBillDto
     {
         public int Bill_id { get; set; }
-        public decimal Fine_kg { get; set; }
+        public decimal Fine { get; set; }
         public int NumAdults { get; set; }
         public int NumChildren { get; set; }
         public int? Discount_id { get; set; }
@@ -37,5 +37,9 @@ namespace Buffet_Restaurant_API.Dtos
     {
         public string PaymentMethod { get; set; } = string.Empty; 
         public string? TransactionId { get; set; } 
+    }
+    public class updateFineDto
+    {
+        public decimal Fine {get;set;}
     }
 }

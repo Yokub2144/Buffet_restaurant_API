@@ -204,7 +204,7 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 DrawDivider();
                 y += 10;
                 // --- SUMMARY ---
-                decimal fineTotal = bill.Fine_kg * finePerKg;
+                decimal fineTotal = bill.Fine * finePerKg;
                 DrawRow("ค่าปรับ:", $"{fineTotal:N0}");
                 DrawRow("โปรโมชั่น:", bill.Discount_id.HasValue ? "มีส่วนลด" : "ไม่มี");
 
