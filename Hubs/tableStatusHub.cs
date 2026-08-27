@@ -9,7 +9,10 @@ namespace Buffet_Restaurant_Managment_System_API.Hubs
         {
             await Groups.AddToGroupAsync(Context.ConnectionId, "TableRoom");
         }
-
+        public async Task JoinBillRoom(string billId)
+        {
+            await Groups.AddToGroupAsync(Context.ConnectionId, $"Bill_{billId}");
+        }
         public async Task LeaveTableRoom()
         {
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, "TableRoom");
