@@ -293,6 +293,14 @@ namespace Buffet_Restaurant_API.Controllers
                 foreach (var order in preOrdersToStart)
                 {
                     await _hubContext.Clients.All.SendAsync("NewKitchenOrder", order.Order_id);
+
+                    // 🟢 แจ้งหน้าติดตามสถานะของลูกค้า (StatusPreOrder) ว่าออเดอร์เปลี่ยนสถานะแล้ว
+                    await _hubContext.Clients.All.SendAsync("OrderStatusUpdated", new
+                    {
+                        orderId = order.Order_id,
+                        status = order.Order_Status, // "กำลังจัดเตรียมอาหาร"
+                        billId = order.Bill_id
+                    });
                 }
 
                 return Ok(new
