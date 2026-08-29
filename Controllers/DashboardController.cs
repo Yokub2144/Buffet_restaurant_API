@@ -77,31 +77,39 @@ namespace Buffet_Restaurant_API.Controllers
         }
 
         // GET: api/dashboard/sales-chart?type=daily
+        // GET: api/dashboard/sales-chart?type=daily&selectedDate=2026-08-26
         [HttpGet("sales-chart")]
-        public async Task<ActionResult<SalesChartResponseDto>> GetSalesChart([FromQuery] string type = "daily")
+        public async Task<ActionResult<SalesChartResponseDto>> GetSalesChart(
+            [FromQuery] string type = "daily",
+            [FromQuery] DateTime? selectedDate = null)
         {
             using var connection = _context.Database.GetDbConnection();
             string sqlQuery = string.Empty;
+            var targetDate = selectedDate ?? DateTime.Today;
 
             switch (type.ToLower())
             {
                 case "monthly":
+                    // 🎯 เลือกเดือนไหน ให้ย้อนหลังไป 12 เดือน สิ้นสุด ณ เดือนที่เลือก
                     sqlQuery = @"
                 SELECT 
                     DATE_FORMAT(PaymentDateTime, '%m/%Y') AS Label,
                     SUM(Amount) AS Amount
                 FROM Payment
-                WHERE PaymentDateTime >= NOW() - INTERVAL 12 MONTH
+                WHERE PaymentDateTime >= DATE_SUB(LAST_DAY(@TargetDate), INTERVAL 12 MONTH) + INTERVAL 1 DAY
+                  AND PaymentDateTime <= LAST_DAY(@TargetDate)
                 GROUP BY DATE_FORMAT(PaymentDateTime, '%m/%Y'), YEAR(PaymentDateTime), MONTH(PaymentDateTime)
                 ORDER BY YEAR(PaymentDateTime) ASC, MONTH(PaymentDateTime) ASC";
                     break;
 
                 case "yearly":
+                    // 🎯 เลือกปีไหน ให้ย้อนหลังไป 5 ปี สิ้นสุด ณ ปีที่เลือก
                     sqlQuery = @"
                 SELECT 
                     DATE_FORMAT(PaymentDateTime, '%Y') AS Label,
                     SUM(Amount) AS Amount
                 FROM Payment
+                WHERE YEAR(PaymentDateTime) BETWEEN YEAR(@TargetDate) - 4 AND YEAR(@TargetDate)
                 GROUP BY DATE_FORMAT(PaymentDateTime, '%Y'), YEAR(PaymentDateTime)
                 ORDER BY YEAR(PaymentDateTime) ASC";
                     break;
@@ -109,26 +117,25 @@ namespace Buffet_Restaurant_API.Controllers
                 case "daily":
                 default:
                     type = "daily";
+                    // 🎯 เลือกวันไหน ให้ย้อนหลังไป 7 วัน สิ้นสุด ณ วันที่เลือก
                     sqlQuery = @"
                 SELECT 
                     DATE_FORMAT(PaymentDateTime, '%d/%m/%Y') AS Label,
                     SUM(Amount) AS Amount
                 FROM Payment
-                WHERE PaymentDateTime >= CURDATE() - INTERVAL 6 DAY
+                WHERE DATE(PaymentDateTime) BETWEEN DATE_SUB(DATE(@TargetDate), INTERVAL 6 DAY) AND DATE(@TargetDate)
                 GROUP BY DATE_FORMAT(PaymentDateTime, '%d/%m/%Y'), DATE(PaymentDateTime)
                 ORDER BY DATE(PaymentDateTime) ASC";
                     break;
             }
 
-            var chartData = (await connection.QueryAsync<SalesChartItemDto>(sqlQuery)).ToList();
+            var chartData = (await connection.QueryAsync<SalesChartItemDto>(sqlQuery, new { TargetDate = targetDate })).ToList();
 
-            var response = new SalesChartResponseDto
+            return Ok(new SalesChartResponseDto
             {
                 Type = type,
                 Data = chartData
-            };
-
-            return Ok(response);
+            });
         }
         [HttpGet("cashier-stats")]
         public async Task<ActionResult<CashierDashboardStatsDto>> GetCashierDashboardStats([FromQuery] string type = "daily")
@@ -172,7 +179,7 @@ namespace Buffet_Restaurant_API.Controllers
                 SELECT 
                     COALESCE(SUM(b.NumAdults), 0) AS TotalAdults,
                     COALESCE(SUM(b.NumChildren), 0) AS TotalChildren,
-                    COALESCE(SUM(b.Fine_Kg), 0) AS TotalFines,
+                    COALESCE(SUM(b.Fine), 0) AS TotalFines,
                     COALESCE(SUM(d.Discount_amount), 0) AS TotalDiscount
                 FROM bill b
                 LEFT JOIN Discount d ON b.Discount_id = d.Discount_id
@@ -188,13 +195,13 @@ namespace Buffet_Restaurant_API.Controllers
                     NetRevenue = paymentStats?.NetRevenue != null ? Convert.ToDecimal(paymentStats.NetRevenue) : 0m,
                     CashAmount = paymentStats?.CashAmount != null ? Convert.ToDecimal(paymentStats.CashAmount) : 0m,
                     TransferAmount = paymentStats?.TransferAmount != null ? Convert.ToDecimal(paymentStats.TransferAmount) : 0m,
-                    
+
                     TotalAdults = billStats?.TotalAdults != null ? Convert.ToInt32(billStats.TotalAdults) : 0,
                     TotalChildren = billStats?.TotalChildren != null ? Convert.ToInt32(billStats.TotalChildren) : 0,
                     TotalFines = billStats?.TotalFines != null ? Convert.ToDecimal(billStats.TotalFines) : 0m,
-                    
+
                     // เพิ่มการส่งค่าส่วนลดที่ได้จากการ JOIN
-                    TotalDiscount = billStats?.TotalDiscount != null ? Convert.ToDecimal(billStats.TotalDiscount) : 0m 
+                    TotalDiscount = billStats?.TotalDiscount != null ? Convert.ToDecimal(billStats.TotalDiscount) : 0m
                 };
 
                 return Ok(result);
