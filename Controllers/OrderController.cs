@@ -58,8 +58,9 @@ namespace Buffet_Restaurant_API.Controllers
 
             bool isPreOrder = dto.OrderType?.ToLower() == "preorder" || dto.OrderType == "สั่งล่วงหน้า";
             string orderTypeDisplay = isPreOrder ? "สั่งล่วงหน้า" : "สั่งหน้าร้าน";
-            // 🟢 ทุกออเดอร์เริ่มที่ "กำลังจัดเตรียมอาหาร" เหมือนกัน ไม่ว่าจะสั่งหน้าร้านหรือสั่งล่วงหน้า
-            string initialStatus = "กำลังจัดเตรียมอาหาร";
+            // 🟢 สั่งหน้าร้าน -> ครัวรับเข้าเตรียมทันที (กำลังจัดเตรียมอาหาร)
+            // 🟢 สั่งล่วงหน้า -> เป็นแค่รับคำสั่งไว้ก่อน รอถึงรอบเวลาจองค่อยเริ่มเตรียม (รับออเดอร์)
+            string initialStatus = isPreOrder ? "รับออเดอร์" : "กำลังจัดเตรียมอาหาร";
 
             using var transaction = await _context.Database.BeginTransactionAsync();
 
