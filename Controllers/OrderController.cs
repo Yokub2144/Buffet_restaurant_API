@@ -188,10 +188,16 @@ namespace Buffet_Restaurant_API.Controllers
 
             if (order == null) return NotFound(new { message = "ไม่พบรายการออเดอร์" });
 
+            var bill = await _context.Bill.FirstOrDefaultAsync(b => b.Bill_id == order.BillId);
+
+            // 2. ค้นหาเลขโต๊ะจาก Bill_id หรือ Booking_id
             var tableNumbers = await (from gt in _context.GroupTables
                                       join t in _context.Tables on gt.Table_id equals t.Table_id
-                                      where gt.Bill_id == order.BillId
-                                      select t.Table_Number).ToListAsync();
+                                      where (gt.Bill_id == order.BillId) ||
+                                            (bill != null && bill.Booking_id != null && gt.Booking_id == bill.Booking_id)
+                                      select t.Table_Number)
+                                      .Distinct()
+                                      .ToListAsync();
 
             string tableDisplay = tableNumbers.Any() ? string.Join(", ", tableNumbers) : "ไม่ระบุโต๊ะ";
 

@@ -224,22 +224,40 @@ namespace Buffet_Restaurant_API.Controllers
 
                 allTables.ForEach(t => t.Table_Status = "ไม่ว่าง");
 
-                // 4. สร้างบิลจากการจอง
-                var autoBill = new Bill
-                {
-                    Booking_id = booking.Booking_id,
-                    Config_id = dto.Config_id ?? 1,
-                    Emp_id = dto.Emp_id ?? 1,
-                    Discount_id = dto.Discount_id,
-                    Created_at = DateTime.Now,
-                    NumAdults = booking.Adult_Count,
-                    NumChildren = booking.Child_Count,
-                    Fine = 0,
-                    Total_amount = booking.Deposit_Amount,
-                    PaymentMethod = null
-                };
+                // 4. หา Bill ของการจองนี้: ถ้าเคยสั่งอาหารล่วงหน้าไว้จะมี Bill อยู่แล้ว (สร้างจาก PlaceOrder)
+                //    ให้ใช้ใบเดิมต่อ ห้ามสร้างใหม่ซ้ำ ไม่งั้นออเดอร์ที่สั่งล่วงหน้าจะหลุดไปอยู่คนละบิลกับโต๊ะที่เช็คอิน
+                var existingBill = await _context.Bill
+                    .FirstOrDefaultAsync(b => b.Booking_id == booking.Booking_id);
 
-                _context.Bill.Add(autoBill);
+                Bill autoBill;
+                if (existingBill != null)
+                {
+                    autoBill = existingBill;
+                    // อัปเดตข้อมูลบิลให้ตรงกับตอนเช็คอินจริง (เผื่อจำนวนคน/พนักงาน/ส่วนลดเปลี่ยนไปจากตอนสั่งล่วงหน้า)
+                    autoBill.Emp_id = dto.Emp_id ?? autoBill.Emp_id;
+                    autoBill.Discount_id = dto.Discount_id ?? autoBill.Discount_id;
+                    autoBill.NumAdults = booking.Adult_Count;
+                    autoBill.NumChildren = booking.Child_Count;
+                }
+                else
+                {
+                    autoBill = new Bill
+                    {
+                        Booking_id = booking.Booking_id,
+                        Config_id = dto.Config_id ?? 1,
+                        Emp_id = dto.Emp_id ?? 1,
+                        Discount_id = dto.Discount_id,
+                        Created_at = DateTime.Now,
+                        NumAdults = booking.Adult_Count,
+                        NumChildren = booking.Child_Count,
+                        Fine = 0,
+                        Total_amount = booking.Deposit_Amount,
+                        PaymentMethod = null
+                    };
+
+                    _context.Bill.Add(autoBill);
+                }
+
                 await _context.SaveChangesAsync(); // บันทึกเพื่อให้ได้ autoBill.Bill_id
 
                 // 🎯 5. หยอด Bill_id ใส่ใน GroupTables ทุกแถวของการจองนี้
@@ -251,14 +269,30 @@ namespace Buffet_Restaurant_API.Controllers
                 // 6. อัปเดตสถานะการจองเป็น Completed
                 booking.Booking_Status = "Completed";
 
+                // 🍳 7. ลูกค้ามาถึงแล้ว -> ออเดอร์ที่สั่งล่วงหน้าไว้ (สถานะยังเป็น "รับออเดอร์") ให้เริ่มเข้าครัวได้เลย
+                var preOrdersToStart = await _context.Orders
+                    .Where(o => o.Bill_id == autoBill.Bill_id && o.Order_Status == "รับออเดอร์")
+                    .ToListAsync();
+
+                foreach (var order in preOrdersToStart)
+                {
+                    order.Order_Status = "กำลังจัดเตรียมอาหาร";
+                }
+
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                // 7. แจ้งเตือน Real-time ผ่าน SignalR
+                // 8. แจ้งเตือน Real-time ผ่าน SignalR
                 foreach (var table in allTables)
                 {
                     await _hubContext.Clients.All
                         .SendAsync("UpdateTable", new { tableId = table.Table_id, status = "ไม่ว่าง" });
+                }
+
+                // แจ้งครัวว่าออเดอร์ที่สั่งล่วงหน้าไว้เริ่มทำได้แล้ว (ลูกค้ามาถึงร้านแล้ว)
+                foreach (var order in preOrdersToStart)
+                {
+                    await _hubContext.Clients.All.SendAsync("NewKitchenOrder", order.Order_id);
                 }
 
                 return Ok(new
