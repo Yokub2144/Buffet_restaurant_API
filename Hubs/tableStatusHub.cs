@@ -23,10 +23,14 @@ namespace Buffet_Restaurant_Managment_System_API.Hubs
             await Clients.All.SendAsync("ShowCustomerDisplay", data);
         }
 
-        // 🟢 บรอดแคสต์คำสั่งล้างหน้าจอให้กลับเป็น Index
+        //  บรอดแคสต์คำสั่งล้างหน้าจอให้กลับเป็น Index
         public async Task ClearCustomerDisplay()
         {
             await Clients.All.SendAsync("ClearCustomerDisplay");
+        }
+        public async Task UpdateDiscount()
+        {
+            await Clients.All.SendAsync("UpdateDiscount");
         }
     }
 }
