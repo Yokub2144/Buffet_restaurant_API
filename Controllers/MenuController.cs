@@ -5,6 +5,8 @@ using Buffet_Restaurant_API.Dtos;
 using Buffet_Restaurant_Managment_System_API.Data;
 using CloudinaryDotNet;
 using CloudinaryDotNet.Actions;
+using Microsoft.AspNetCore.SignalR;
+using Buffet_Restaurant_Managment_System_API.Hubs;
 
 namespace Buffet_Restaurant_API.Controllers
 {
@@ -14,11 +16,13 @@ namespace Buffet_Restaurant_API.Controllers
     {
         private readonly restaurantDbContext _context;
         private readonly Cloudinary _cloudinary;
+        private readonly IHubContext<tableStatusHub> _hubContext;
 
-        public MenuController(restaurantDbContext context, Cloudinary cloudinary)
+        public MenuController(restaurantDbContext context, Cloudinary cloudinary, IHubContext<tableStatusHub> hubContext)
         {
             _context = context;
             _cloudinary = cloudinary;
+            _hubContext = hubContext;
         }
 
         [HttpGet]
@@ -77,7 +81,7 @@ namespace Buffet_Restaurant_API.Controllers
 
                 _context.Menus.Add(menu);
                 await _context.SaveChangesAsync();
-
+                await _hubContext.Clients.All.SendAsync("MenuUpdated");
                 return CreatedAtAction("GetMenu", new { id = menu.Menu_id }, menu);
             }
             catch (Exception ex)
@@ -99,7 +103,7 @@ namespace Buffet_Restaurant_API.Controllers
                 menu.Price = request.Price;
                 menu.Category = request.Category;
                 menu.Menu_Type = request.Menu_Type;
-                
+
                 if (request.ImageFile != null && request.ImageFile.Length > 0)
                 {
                     var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp" };
@@ -126,7 +130,7 @@ namespace Buffet_Restaurant_API.Controllers
 
                 _context.Menus.Update(menu);
                 await _context.SaveChangesAsync();
-
+                await _hubContext.Clients.All.SendAsync("MenuUpdated");
                 return Ok(new { message = "แก้ไขเมนูเรียบร้อยแล้ว", data = menu });
             }
             catch (Exception ex)
