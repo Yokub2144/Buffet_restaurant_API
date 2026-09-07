@@ -1,7 +1,9 @@
 using Buffet_Restaurant_Managment_System_API.Data;
+using Buffet_Restaurant_Managment_System_API.Hubs;
 using Buffet_Restaurant_Managment_System_API.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace Buffet_Restaurant_Managment_System_API.Controllers
@@ -11,10 +13,12 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
     public class DiscountController : ControllerBase
     {
         private readonly restaurantDbContext _context;
+        private readonly IHubContext<tableStatusHub> _hubContext;
 
-        public DiscountController(restaurantDbContext context)
+        public DiscountController(restaurantDbContext context, IHubContext<tableStatusHub> hubContext)
         {
             _context = context;
+            _hubContext = hubContext;
         }
 
         // GET /api/Discount
@@ -66,6 +70,8 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 _context.Discounts.Add(newDiscount);
                 await _context.SaveChangesAsync();
 
+                await _hubContext.Clients.All.SendAsync("UpdateDiscount");
+
                 return Ok(new { message = "เพิ่มส่วนลดสำเร็จ", data = newDiscount });
             }
             catch (Exception ex)
@@ -85,7 +91,6 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                 if (discount == null)
                     return NotFound(new { message = "ไม่พบข้อมูลส่วนลด" });
 
-                // ถ้าส่งวันมาทั้งคู่ → validate
                 if (request.StartDate.HasValue && request.EndDate.HasValue
                     && request.StartDate > request.EndDate)
                     return BadRequest(new { message = "วันเริ่มต้องน้อยกว่าวันสิ้นสุด" });
@@ -103,6 +108,9 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
                                             : discount.EndDate;
 
                 await _context.SaveChangesAsync();
+
+                // 🟢 ยิงสัญญาณ Realtime แจ้งทุก Client
+                await _hubContext.Clients.All.SendAsync("UpdateDiscount");
 
                 return Ok(new { message = "แก้ไขส่วนลดสำเร็จ", data = discount });
             }
@@ -125,6 +133,9 @@ namespace Buffet_Restaurant_Managment_System_API.Controllers
 
                 _context.Discounts.Remove(discount);
                 await _context.SaveChangesAsync();
+
+                // 🟢 ยิงสัญญาณ Realtime แจ้งทุก Client
+                await _hubContext.Clients.All.SendAsync("UpdateDiscount");
 
                 return Ok(new { message = "ลบส่วนลดเรียบร้อยแล้ว" });
             }
